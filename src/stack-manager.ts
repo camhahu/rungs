@@ -23,16 +23,16 @@ export class StackManager {
   async ensurePrerequisites(): Promise<void> {
     // Check if we're in a git repository
     if (!(await this.git.isGitRepo())) {
-      throw new Error("Not in a git repository");
+      throw new Error("Not in a git repository. Run 'git init' to initialize a repository.");
     }
 
     // Check if GitHub CLI is available and authenticated
     if (!(await this.github.isGitHubCLIAvailable())) {
-      throw new Error("GitHub CLI (gh) is not installed or not in PATH");
+      throw new Error("GitHub CLI (gh) is not installed or not in PATH. Install from https://cli.github.com/");
     }
 
     if (!(await this.github.isAuthenticated())) {
-      throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' first.");
+      throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' to authenticate.");
     }
 
     // Always sync with GitHub to ensure state is current
