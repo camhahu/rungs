@@ -540,31 +540,31 @@ class ConfigManager {
         return DEFAULT_CONFIG;
       }
       const content = await file.text();
-      const config2 = JSON.parse(content);
-      return { ...DEFAULT_CONFIG, ...config2 };
+      const config = JSON.parse(content);
+      return { ...DEFAULT_CONFIG, ...config };
     } catch (error) {
       console.warn(`Failed to read config file, using defaults: ${error}`);
       return DEFAULT_CONFIG;
     }
   }
   async get(key) {
-    const config2 = await this.getAll();
-    return config2[key];
+    const config = await this.getAll();
+    return config[key];
   }
   async set(key, value) {
     await this.ensureConfigDir();
-    const config2 = await this.getAll();
-    config2[key] = value;
+    const config = await this.getAll();
+    config[key] = value;
     try {
-      await Bun.write(this.configPath, JSON.stringify(config2, null, 2));
+      await Bun.write(this.configPath, JSON.stringify(config, null, 2));
     } catch (error) {
       throw new Error(`Failed to write config file: ${error}`);
     }
   }
   async update(updates) {
     await this.ensureConfigDir();
-    const config2 = await this.getAll();
-    const newConfig = { ...config2, ...updates };
+    const config = await this.getAll();
+    const newConfig = { ...config, ...updates };
     try {
       await Bun.write(this.configPath, JSON.stringify(newConfig, null, 2));
     } catch (error) {
@@ -609,12 +609,12 @@ class OutputManager {
     cyan: "\x1B[36m",
     gray: "\x1B[90m"
   };
-  constructor(config2 = {}) {
+  constructor(config = {}) {
     this.config = {
       showTimestamps: false,
       useColors: true,
       verboseMode: false,
-      ...config2
+      ...config
     };
   }
   startSection(title, type = "general") {
@@ -768,58 +768,14 @@ function setVerbose(verbose) {
 }
 
 // src/stack-manager.ts
-import * as path from "path";
-import * as os from "os";
-
 class StackManager {
   config;
   git;
   github;
-  stateFile = null;
-  constructor(config2, git, github) {
-    this.config = config2;
+  constructor(config, git, github) {
+    this.config = config;
     this.git = git;
     this.github = github;
-  }
-  async getStateFilePath() {
-    if (this.stateFile) {
-      return this.stateFile;
-    }
-    const repoInfo = await this.getRepositoryInfo();
-    const stateDir = path.join(os.homedir(), ".config", "rungs", repoInfo.owner, repoInfo.repo);
-    const stateFilePath = path.join(stateDir, "state.json");
-    await this.ensureDirectoryExists(stateDir);
-    this.stateFile = stateFilePath;
-    return stateFilePath;
-  }
-  async getRepositoryInfo() {
-    try {
-      const result = await Bun.$`git config --get remote.origin.url`;
-      let url;
-      if (result && typeof result === "object" && "stdout" in result) {
-        url = result.stdout.toString().trim();
-      } else if (typeof result === "string") {
-        url = result.trim();
-      } else {
-        throw new Error("Could not get remote URL");
-      }
-      let match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-      if (!match) {
-        throw new Error("Could not parse GitHub repository URL");
-      }
-      const [, owner, repo] = match;
-      return { owner, repo };
-    } catch (error) {
-      if (false) {}
-      throw new Error(`Failed to determine repository info: ${error}`);
-    }
-  }
-  async ensureDirectoryExists(dirPath) {
-    try {
-      await Bun.write(path.join(dirPath, ".keep"), "");
-    } catch (error) {
-      throw new Error(`Failed to create directory ${dirPath}: ${error}`);
-    }
   }
   async ensurePrerequisites() {
     if (!await this.git.isGitRepo()) {
@@ -831,190 +787,179 @@ class StackManager {
     if (!await this.github.isAuthenticated()) {
       throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' to authenticate.");
     }
-    await this.syncWithGitHub();
   }
-  async syncWithGitHub() {
-    const state = await this.loadState();
-    if (state.pullRequests.length === 0) {
-      return;
+  async getCurrentStack() {
+    startGroup("Discovering Stack from GitHub", "github");
+    try {
+      const config = await this.config.getAll();
+      logProgress("Fetching open PRs...");
+      const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+      const allPRs = JSON.parse(result);
+      const stackPRs = allPRs.filter((pr) => pr.headRefName.startsWith(config.userPrefix + "/"));
+      logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
+      if (stackPRs.length === 0) {
+        endGroup();
+        return { prs: [], totalCommits: 0 };
+      }
+      logProgress("Building stack order from base chains...");
+      const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+      logProgress("Validating and auto-fixing broken chains...");
+      const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+      const stackState = {
+        prs: fixedPRs.map((pr) => ({
+          number: pr.number,
+          branch: pr.headRefName,
+          title: pr.title,
+          url: pr.url,
+          base: pr.baseRefName,
+          head: pr.headRefName
+        })),
+        totalCommits: 0,
+        lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+      };
+      logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
+      if (fixedPRs.length > 0) {
+        const stackOrder = fixedPRs.map((pr, i) => `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`);
+        output.logList(stackOrder, "Stack Order:", "info");
+      }
+      endGroup();
+      return stackState;
+    } catch (error) {
+      endGroup();
+      throw new Error(`Failed to discover stack from GitHub: ${error}`);
     }
-    startGroup("Syncing with GitHub", "github");
-    const config2 = await this.config.getAll();
-    const activePRs = [];
-    const activeBranches = [];
-    const mergedPRs = [];
-    const needsRebase = [];
-    logProgress("Checking PR status and bases...");
-    for (let i = 0;i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const branchName = state.branches[i];
-      try {
-        const status = await this.github.getPullRequestStatus(prNumber);
-        if (status === "open") {
-          const prDetails = await this.github.getPullRequestByNumber(prNumber);
-          const expectedBase = i === 0 ? config2.defaultBranch : state.branches[i - 1];
-          logInfo(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`, 1);
-          if (prDetails && prDetails.base !== expectedBase) {
-            const baseExists = await this.branchExistsOnGitHub(prDetails.base);
-            logInfo(`Base branch "${prDetails.base}" exists: ${baseExists}`, 1);
-            if (!baseExists || prDetails.base !== expectedBase) {
-              logInfo(`Adding PR #${prNumber} to rebase queue`, 1);
-              needsRebase.push({ prNumber, branchName, correctBase: expectedBase });
+  }
+  async getNewCommits() {
+    startGroup("Finding New Commits", "git");
+    try {
+      const config = await this.config.getAll();
+      const currentStack = await this.getCurrentStack();
+      logProgress("Determining base reference...");
+      const exclusions = [`origin/${config.defaultBranch}`];
+      for (const pr of currentStack.prs) {
+        exclusions.push(`origin/${pr.branch}`);
+      }
+      logInfo(`Excluding commits from: ${exclusions.join(", ")}`, 1);
+      logProgress("Scanning for new commits...");
+      let newCommits = [];
+      for (const exclusion of exclusions) {
+        try {
+          await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
+          const commitsFromThisRef = await this.git.getCommitsSince(exclusion);
+          if (commitsFromThisRef.length > 0) {
+            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+              newCommits = commitsFromThisRef;
+              logInfo(`Using ${exclusion} as base (${commitsFromThisRef.length} new commits)`, 1);
             }
           }
-          activePRs.push(prNumber);
-          activeBranches.push(branchName);
-        } else if (status === "merged") {
-          mergedPRs.push(prNumber);
+        } catch {
+          continue;
         }
-      } catch (error) {
-        logWarning(`Could not check status of PR #${prNumber}, removing from tracking`, 1);
       }
-    }
-    if (mergedPRs.length > 0 && activePRs.length > 0) {
-      await this.autoRebaseAfterMerges(activePRs, activeBranches);
-    }
-    if (needsRebase.length > 0) {
-      await this.fixIncorrectBases(needsRebase);
-    }
-    const syncedState = {
-      ...state,
-      pullRequests: activePRs,
-      branches: activeBranches,
-      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
-    };
-    await this.saveState(syncedState);
-    logSuccess("GitHub sync completed");
-    endGroup();
-  }
-  async branchExistsOnGitHub(branchName) {
-    try {
-      await Bun.$`gh api repos/:owner/:repo/branches/${branchName}`.quiet();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  async fixIncorrectBases(needsRebase) {
-    startGroup(`Fixing Incorrect Bases (${needsRebase.length} PRs)`, "github");
-    for (const { prNumber, branchName, correctBase } of needsRebase) {
-      try {
-        logProgress(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`, 1);
-        await this.github.updatePullRequestBase(prNumber, correctBase);
-        logSuccess(`Updated PR #${prNumber} base`, 1);
-      } catch (error) {
-        logWarning(`Could not update base for PR #${prNumber}: ${error}`, 1);
+      if (newCommits.length === 0) {
+        try {
+          newCommits = await this.git.getCommitsSince(`origin/${config.defaultBranch}`);
+          logInfo(`Falling back to origin/${config.defaultBranch}`, 1);
+        } catch {
+          try {
+            const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+            const baseRef = rootCommit.trim().split(`
+`)[0];
+            newCommits = await this.git.getCommitsSince(baseRef);
+            logInfo(`Using root commit as base`, 1);
+          } catch {
+            newCommits = [];
+          }
+        }
       }
-    }
-    endGroup();
-  }
-  async autoRebaseAfterMerges(activePRs, activeBranches) {
-    const config2 = await this.config.getAll();
-    console.log(`Auto-rebasing ${activePRs.length} PRs after merge...`);
-    for (let i = 0;i < activePRs.length; i++) {
-      const prNumber = activePRs[i];
-      const newBase = i === 0 ? config2.defaultBranch : activeBranches[i - 1];
-      try {
-        console.log(`Updating PR #${prNumber} base to ${newBase}`);
-        await this.github.updatePullRequestBase(prNumber, newBase);
-      } catch (error) {
-        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
+      logSuccess(`Found ${newCommits.length} new commits`);
+      if (newCommits.length > 0) {
+        const commitList = newCommits.map((c) => `${c.hash.slice(0, 7)}: ${c.message}`);
+        output.logList(commitList, "New commits:", "info");
       }
-    }
-  }
-  async loadState() {
-    try {
-      const stateFilePath = await this.getStateFilePath();
-      const file = Bun.file(stateFilePath);
-      if (!await file.exists()) {
-        return { branches: [], pullRequests: [] };
-      }
-      const content = await file.text();
-      const state = JSON.parse(content);
-      return { branches: [], pullRequests: [], ...state };
-    } catch {
-      return { branches: [], pullRequests: [] };
-    }
-  }
-  async saveState(state) {
-    try {
-      const stateFilePath = await this.getStateFilePath();
-      await Bun.write(stateFilePath, JSON.stringify(state, null, 2));
+      endGroup();
+      return newCommits;
     } catch (error) {
-      throw new Error(`Failed to save state: ${error}`);
+      endGroup();
+      throw new Error(`Failed to find new commits: ${error}`);
     }
   }
-  async mergePullRequest(prNumber, mergeMethod = "squash", deleteBranch = true) {
-    await this.ensurePrerequisites();
-    if (!prNumber) {
-      const state = await this.loadState();
-      if (state.pullRequests.length === 0) {
-        throw new Error("No PRs found in current stack");
+  buildStackOrder(prs, defaultBranch) {
+    const orderedPRs = [];
+    const remaining = [...prs];
+    let currentBase = defaultBranch;
+    while (remaining.length > 0) {
+      const nextPR = remaining.find((pr) => pr.baseRefName === currentBase);
+      if (!nextPR) {
+        if (remaining.length > 0) {
+          logWarning(`Broken chain detected: ${remaining.length} PRs don't follow proper base chain`, 1);
+          orderedPRs.push(...remaining);
+        }
+        break;
       }
-      prNumber = state.pullRequests[state.pullRequests.length - 1];
+      orderedPRs.push(nextPR);
+      remaining.splice(remaining.indexOf(nextPR), 1);
+      currentBase = nextPR.headRefName;
     }
-    console.log(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
-    await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
-    console.log(`\u2705 Successfully merged PR #${prNumber}`);
-    console.log("\uD83D\uDD04 Updating local main with latest changes...");
-    try {
-      const config2 = await this.config.getAll();
-      console.log("  \uD83D\uDD04 Fetching from remote...");
-      console.log("  \uD83D\uDD04 Rebasing local changes...");
-      await this.git.pullLatestChanges(config2.defaultBranch);
-      console.log("  \u2705 Local main is now up to date");
-    } catch (error) {
-      console.warn(`  \u26A0\uFE0F Warning: Could not update local ${config.defaultBranch}: ${error}`);
+    return orderedPRs;
+  }
+  async autoFixBrokenChains(prs, defaultBranch) {
+    const fixedPRs = [...prs];
+    const needsFixing = [];
+    for (let i = 0;i < fixedPRs.length; i++) {
+      const pr = fixedPRs[i];
+      const expectedBase = i === 0 ? defaultBranch : fixedPRs[i - 1].headRefName;
+      if (pr.baseRefName !== expectedBase) {
+        needsFixing.push({
+          prNumber: pr.number,
+          currentBase: pr.baseRefName,
+          correctBase: expectedBase
+        });
+        fixedPRs[i] = { ...pr, baseRefName: expectedBase };
+      }
     }
-    console.log("Updating stack state...");
-    await this.syncWithGitHub();
-    console.log("Stack state updated successfully!");
+    if (needsFixing.length > 0) {
+      startGroup(`Auto-fixing ${needsFixing.length} broken base chains`, "github");
+      for (const fix of needsFixing) {
+        try {
+          logProgress(`Updating PR #${fix.prNumber}: ${fix.currentBase} -> ${fix.correctBase}`, 1);
+          await this.github.updatePullRequestBase(fix.prNumber, fix.correctBase);
+          logSuccess(`Fixed PR #${fix.prNumber} base`, 1);
+        } catch (error) {
+          logWarning(`Could not fix PR #${fix.prNumber} base: ${error}`, 1);
+        }
+      }
+      endGroup();
+    }
+    return fixedPRs;
   }
   async pushStack(autoPublish = false, force = false) {
     await this.ensurePrerequisites();
-    const config2 = await this.config.getAll();
+    const config = await this.config.getAll();
     const currentBranch = await this.git.getCurrentBranch();
-    if (currentBranch !== config2.defaultBranch) {
-      throw new Error(`Must be on ${config2.defaultBranch} branch to push stack. Currently on ${currentBranch}.`);
+    if (currentBranch !== config.defaultBranch) {
+      throw new Error(`Must be on ${config.defaultBranch} branch to push stack. Currently on ${currentBranch}.`);
     }
     const status = await this.git.getStatus();
     if (!status.isClean) {
       throw new Error("Working directory is not clean. Please commit or stash changes.");
     }
     if (!force) {
-      await this.validateSyncStatus(config2.defaultBranch);
+      await this.validateSyncStatus(config.defaultBranch);
     }
-    if (config2.autoRebase) {
+    if (config.autoRebase) {
       startGroup("Fetching Latest Changes", "git");
       logProgress("Fetching from origin...");
       await this.git.fetchOrigin();
       logSuccess("Fetched latest changes");
       if (status.behind > 0) {
         logProgress(`Rebasing ${status.behind} commits...`);
-        await this.git.rebaseOnto(config2.defaultBranch);
+        await this.git.rebaseOnto(config.defaultBranch);
         logSuccess("Rebase completed");
       }
       endGroup();
     }
-    const state = await this.loadState();
-    let baseRef;
-    if (state.lastProcessedCommit) {
-      baseRef = state.lastProcessedCommit;
-    } else {
-      try {
-        await Bun.$`git rev-parse --verify origin/${config2.defaultBranch}`.quiet();
-        baseRef = `origin/${config2.defaultBranch}`;
-      } catch {
-        try {
-          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim().split(`
-`)[0];
-        } catch {
-          baseRef = `HEAD~10`;
-        }
-      }
-    }
-    const newCommits = await this.git.getCommitsSince(baseRef);
+    const newCommits = await this.getNewCommits();
     if (newCommits.length === 0) {
       logInfo("No new commits to process.");
       return;
@@ -1043,7 +988,7 @@ class StackManager {
     }
     logSuccess("No duplicate PRs found");
     endGroup();
-    const branchName = this.git.generateBranchName(newCommits, config2.userPrefix, config2.branchNaming);
+    const branchName = this.git.generateBranchName(newCommits, config.userPrefix, config.branchNaming);
     if (await this.git.branchExists(branchName)) {
       throw new Error(`Branch ${branchName} already exists. Please delete it or use a different naming strategy.`);
     }
@@ -1057,57 +1002,33 @@ class StackManager {
     startGroup("Creating Pull Request", "github");
     const prTitle = this.github.generatePRTitle(newCommits);
     const prBody = this.github.generatePRBody(newCommits);
-    const baseBranch = state.lastBranch || config2.defaultBranch;
+    const currentStack = await this.getCurrentStack();
+    const baseBranch = currentStack.lastBranch || config.defaultBranch;
     logProgress(`Creating PR: "${prTitle}"`);
     logInfo(`Base branch: ${baseBranch}`, 1);
-    const isDraft = autoPublish ? false : config2.draftPRs;
+    const isDraft = autoPublish ? false : config.draftPRs;
     logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
     const pr = await this.github.createPullRequest(prTitle, prBody, branchName, baseBranch, isDraft);
     logSuccess(`Created pull request: ${pr.url}`);
     endGroup();
     startGroup("Finalizing", "stack");
     logProgress("Switching back to main branch...");
-    await this.git.checkoutBranch(config2.defaultBranch);
-    logProgress("Updating stack state...");
-    const newState = {
-      lastProcessedCommit: newCommits[0].hash,
-      branches: [...state.branches, branchName],
-      pullRequests: [...state.pullRequests, pr.number],
-      lastBranch: branchName
-    };
-    await this.saveState(newState);
-    logSuccess("Stack state updated");
+    await this.git.checkoutBranch(config.defaultBranch);
+    logSuccess("Returned to main branch");
     endGroup();
     logSummary("Stack Created Successfully", [
       { label: "Branch", value: branchName },
       { label: "Pull Request", value: `#${pr.number}` },
       { label: "URL", value: pr.url }
     ]);
-    logInfo(`You can now continue working on ${config2.defaultBranch} and run 'rungs push' again for additional commits.`);
+    logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.`);
   }
   async getStatus() {
     await this.ensurePrerequisites();
-    const config2 = await this.config.getAll();
+    const config = await this.config.getAll();
     const gitStatus = await this.git.getStatus();
-    const state = await this.loadState();
-    let baseRef;
-    if (state.lastProcessedCommit && state.pullRequests.length > 0) {
-      baseRef = state.lastProcessedCommit;
-    } else {
-      try {
-        await Bun.$`git rev-parse --verify origin/${config2.defaultBranch}`.quiet();
-        baseRef = `origin/${config2.defaultBranch}`;
-      } catch {
-        try {
-          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim().split(`
-`)[0];
-        } catch {
-          baseRef = `HEAD~10`;
-        }
-      }
-    }
-    const newCommits = await this.git.getCommitsSince(baseRef);
+    const currentStack = await this.getCurrentStack();
+    const newCommits = await this.getNewCommits();
     let statusMessage = `
 Current Status:
 - Branch: ${gitStatus.currentBranch}
@@ -1115,21 +1036,14 @@ Current Status:
 - Ahead: ${gitStatus.ahead} commits
 - Behind: ${gitStatus.behind} commits
 
-Stack Status:
-- Active branches: ${state.branches.length}
-- Active PRs: ${state.pullRequests.length}
+Stack Status (from GitHub):
+- Active PRs: ${currentStack.prs.length}
 - New commits ready: ${newCommits.length}
 `;
-    if (state.branches.length > 0) {
+    if (currentStack.prs.length > 0) {
       statusMessage += `
-Active Branches:
-${state.branches.map((b) => `  - ${b}`).join(`
-`)}`;
-    }
-    if (state.pullRequests.length > 0) {
-      statusMessage += `
-Active PRs:
-${state.pullRequests.map((pr) => `  - #${pr}`).join(`
+Active PRs (in stack order):
+${currentStack.prs.map((pr, i) => `  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`).join(`
 `)}`;
     }
     if (newCommits.length > 0) {
@@ -1140,28 +1054,49 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
     }
     return statusMessage;
   }
-  async rebaseStack(mergedPrNumber) {
+  async mergePullRequest(prNumber, mergeMethod = "squash", deleteBranch = true) {
     await this.ensurePrerequisites();
-    const state = await this.loadState();
-    const mergedPrIndex = state.pullRequests.indexOf(mergedPrNumber);
-    if (mergedPrIndex === -1) {
-      throw new Error(`PR #${mergedPrNumber} not found in active stack`);
+    if (!prNumber) {
+      const currentStack = await this.getCurrentStack();
+      if (currentStack.prs.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = currentStack.prs[currentStack.prs.length - 1].number;
     }
-    const mergedBranch = state.branches[mergedPrIndex];
-    for (let i = mergedPrIndex + 1;i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const newBase = i === mergedPrIndex + 1 ? "main" : state.branches[i - 1];
-      console.log(`Updating PR #${prNumber} base to ${newBase}`);
-      await this.github.updatePullRequestBase(prNumber, newBase);
+    logInfo(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
+    await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    logSuccess(`\u2705 Successfully merged PR #${prNumber}`);
+    logInfo("\uD83D\uDD04 Updating local main with latest changes...");
+    try {
+      const config = await this.config.getAll();
+      logInfo("  \uD83D\uDD04 Fetching from remote...");
+      logInfo("  \uD83D\uDD04 Rebasing local changes...");
+      await this.git.pullLatestChanges(config.defaultBranch);
+      logInfo("  \u2705 Local main is now up to date");
+    } catch (error) {
+      const config = await this.config.getAll();
+      logWarning(`  \u26A0\uFE0F Warning: Could not update local ${config.defaultBranch}: ${error}`);
     }
-    const newState = {
-      ...state,
-      branches: state.branches.filter((_, index) => index !== mergedPrIndex),
-      pullRequests: state.pullRequests.filter((_, index) => index !== mergedPrIndex),
-      lastBranch: mergedPrIndex === 0 ? undefined : state.branches[mergedPrIndex - 1]
-    };
-    await this.saveState(newState);
-    console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
+    logInfo("Updating stack state from GitHub...");
+    await this.getCurrentStack();
+    logInfo("Stack state updated successfully!");
+  }
+  async publishPullRequest(prNumber) {
+    await this.ensurePrerequisites();
+    if (!prNumber) {
+      const currentStack = await this.getCurrentStack();
+      if (currentStack.prs.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = currentStack.prs[currentStack.prs.length - 1].number;
+    } else {
+      const currentStack = await this.getCurrentStack();
+      const isInStack = currentStack.prs.some((pr) => pr.number === prNumber);
+      if (!isInStack) {
+        console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
+      }
+    }
+    await this.github.publishPullRequest(prNumber);
   }
   async validateSyncStatus(defaultBranch) {
     startGroup("Validating Sync Status", "git");
@@ -1247,21 +1182,6 @@ ${duplicateCheck.duplicateMessages.map((msg) => `  - ${msg}`).join(`
       throw new Error(`Failed to validate sync status: ${error}`);
     }
   }
-  async publishPullRequest(prNumber) {
-    await this.ensurePrerequisites();
-    if (!prNumber) {
-      const state2 = await this.loadState();
-      if (state2.pullRequests.length === 0) {
-        throw new Error("No PRs found in current stack");
-      }
-      prNumber = state2.pullRequests[state2.pullRequests.length - 1];
-    }
-    const state = await this.loadState();
-    if (!state.pullRequests.includes(prNumber)) {
-      console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
-    }
-    await this.github.publishPullRequest(prNumber);
-  }
 }
 
 // src/cli.ts
@@ -1306,10 +1226,10 @@ async function main() {
     if (options.verbose) {
       setVerbose(true);
     }
-    const config2 = new ConfigManager(options.config);
+    const config = new ConfigManager(options.config);
     const git = new GitManager;
     const github = new GitHubManager;
-    const stack = new StackManager(config2, git, github);
+    const stack = new StackManager(config, git, github);
     switch (command) {
       case "stack":
         await handlePush(stack, args, options);
@@ -1327,7 +1247,7 @@ async function main() {
         await handleRebase(stack, args, options);
         break;
       case "config":
-        await handleConfig(config2, args, options);
+        await handleConfig(config, args, options);
         break;
       default:
         output.error(`Command not implemented: ${command}`);
@@ -1439,29 +1359,23 @@ async function handleMerge(stack, args, options) {
   output.endSection();
 }
 async function handleRebase(stack, args, options) {
-  const [prNumber] = args;
-  if (!prNumber) {
-    output.error("Usage: rungs rebase <pr-number>");
-    output.error("Rebase the stack after PR <pr-number> has been merged.");
-    process.exit(1);
-  }
   output.startSection("Rebase Stack", "stack");
-  output.progress(`Rebasing stack after PR #${prNumber} merge...`);
-  await stack.rebaseStack(parseInt(prNumber));
-  output.success("Stack rebased successfully!");
+  output.info("The new GitHub-first stack manager automatically fixes broken chains.");
+  output.info("Stack bases are updated automatically when you run 'rungs status' or 'rungs stack'.");
+  output.info("Manual rebase is no longer needed!");
   output.endSection();
 }
-async function handleConfig(config2, args, options) {
+async function handleConfig(config, args, options) {
   const [action, key, value] = args;
   output.startSection("Configuration", "config");
   if (action === "set" && key && value) {
-    await config2.set(key, value);
+    await config.set(key, value);
     output.success(`Set ${key} = ${value}`);
   } else if (action === "get" && key) {
-    const val = await config2.get(key);
+    const val = await config.get(key);
     output.info(`${key} = ${val ?? "undefined"}`);
   } else if (action === "list" || !action) {
-    const allConfig = await config2.getAll();
+    const allConfig = await config.getAll();
     const configItems = Object.entries(allConfig).map(([k, v]) => ({
       label: k,
       value: v

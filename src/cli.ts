@@ -216,18 +216,11 @@ async function handleMerge(stack: StackManager, args: string[], options: CliOpti
 }
 
 async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
-  const [prNumber] = args;
-  
-  if (!prNumber) {
-    output.error("Usage: rungs rebase <pr-number>");
-    output.error("Rebase the stack after PR <pr-number> has been merged.");
-    process.exit(1);
-  }
-  
+  // The new StackManager auto-fixes broken chains during normal operations
   output.startSection("Rebase Stack", "stack");
-  output.progress(`Rebasing stack after PR #${prNumber} merge...`);
-  await stack.rebaseStack(parseInt(prNumber));
-  output.success("Stack rebased successfully!");
+  output.info("The new GitHub-first stack manager automatically fixes broken chains.");
+  output.info("Stack bases are updated automatically when you run 'rungs status' or 'rungs stack'.");
+  output.info("Manual rebase is no longer needed!");
   output.endSection();
 }
 

@@ -84,14 +84,14 @@ beforeEach(() => {
 
   stackManager = new StackManager(mockConfig, mockGit, mockGitHub);
   
-  // Mock state file operations
-  spyOn(stackManager, "loadState").mockResolvedValue({
-    branches: ["feat/test-1", "feat/test-2"],
-    pullRequests: [101, 102],
-    lastBranch: "feat/test-2"
+  // Mock getCurrentStack to return test data
+  spyOn(stackManager, "getCurrentStack").mockResolvedValue({
+    prs: [
+      { number: 101, branch: "feat/test-1", title: "Test PR 1", url: "http://github.com/test/101", base: "main", head: "feat/test-1" },
+      { number: 102, branch: "feat/test-2", title: "Test PR 2", url: "http://github.com/test/102", base: "feat/test-1", head: "feat/test-2" }
+    ],
+    totalCommits: 5
   });
-  
-  spyOn(stackManager, "syncWithGitHub").mockResolvedValue();
 
   // Mock Bun.$ for ensurePrerequisites
   mockBunShell = spyOn(Bun, "$" as any).mockImplementation(() => 
@@ -112,9 +112,10 @@ test("StackManager should publish top PR when no number provided", async () => {
 });
 
 test("StackManager should throw error when no PRs in stack and no number provided", async () => {
-  spyOn(stackManager, "loadState").mockResolvedValue({
-    branches: [],
-    pullRequests: [],
+  // Mock empty stack from GitHub
+  spyOn(stackManager, "getCurrentStack").mockResolvedValue({
+    prs: [],
+    totalCommits: 0
   });
 
   await expect(stackManager.publishPullRequest()).rejects.toThrow(
@@ -122,17 +123,12 @@ test("StackManager should throw error when no PRs in stack and no number provide
   );
 });
 
-test("StackManager should warn when PR is not in stack but proceed anyway", async () => {
-  const consoleSpy = spyOn(console, "warn").mockImplementation(() => {});
-  
+test("StackManager should publish any PR number without warnings (GitHub-first approach)", async () => {
+  // In the new GitHub-first approach, we don't track local state,
+  // so any PR can be published without warnings
   await stackManager.publishPullRequest(999);
   
-  expect(consoleSpy).toHaveBeenCalledWith(
-    "Warning: PR #999 is not tracked in current stack, but attempting to publish anyway..."
-  );
   expect(mockGitHub.publishPullRequest).toHaveBeenCalledWith(999);
-  
-  consoleSpy.mockRestore();
 });
 
 test("StackManager should not warn when PR is in stack", async () => {
