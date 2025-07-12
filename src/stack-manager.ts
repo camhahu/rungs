@@ -207,7 +207,7 @@ export class StackManager {
     console.log("Stack state updated successfully!");
   }
 
-  async pushStack(): Promise<void> {
+  async pushStack(autoPublish: boolean = false): Promise<void> {
     await this.ensurePrerequisites();
 
     const config = await this.config.getAll();
@@ -290,12 +290,13 @@ export class StackManager {
     // Use the last branch as base for stacking, or default branch for first PR
     const baseBranch = state.lastBranch || config.defaultBranch;
     
+    const isDraft = autoPublish ? false : config.draftPRs;
     const pr = await this.github.createPullRequest(
       prTitle,
       prBody,
       branchName,
       baseBranch,
-      config.draftPRs
+      isDraft
     );
 
     console.log(`Created pull request: ${pr.url}`);
@@ -413,5 +414,26 @@ Stack Status:
     await this.saveState(newState);
 
     console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
+  }
+
+  async publishPullRequest(prNumber?: number): Promise<void> {
+    await this.ensurePrerequisites();
+    
+    // If no PR number provided, find the top PR in the stack
+    if (!prNumber) {
+      const state = await this.loadState();
+      if (state.pullRequests.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = state.pullRequests[state.pullRequests.length - 1];
+    }
+    
+    // Verify the PR is in our stack (for safety)
+    const state = await this.loadState();
+    if (!state.pullRequests.includes(prNumber)) {
+      console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
+    }
+    
+    await this.github.publishPullRequest(prNumber);
   }
 }

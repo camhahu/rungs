@@ -252,6 +252,30 @@ export class GitHubManager {
     }
   }
 
+  async publishPullRequest(prNumber: number): Promise<void> {
+    try {
+      await Bun.$`gh pr ready ${prNumber}`;
+    } catch (error: any) {
+      let errorMessage = `Failed to publish pull request #${prNumber}`;
+      
+      if (error.stderr) {
+        const stderr = error.stderr.toString().trim();
+        errorMessage += `: ${stderr}`;
+        
+        // Add helpful context for common issues
+        if (stderr.includes("not a draft")) {
+          errorMessage += "\n\nHint: This PR is already published (not a draft).";
+        } else if (stderr.includes("not found")) {
+          errorMessage += "\n\nHint: PR number may not exist or you may not have access to it.";
+        }
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+  }
+
   generatePRTitle(commits: any[]): string {
     if (commits.length === 0) {
       return "Empty stack";
