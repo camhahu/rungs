@@ -48,13 +48,13 @@ export class GitHubManager {
     draft: boolean = true
   ): Promise<PullRequest> {
     try {
-      const args = ["gh", "pr", "create", "--title", title, "--body", body, "--head", head, "--base", base];
+      let cmd = `gh pr create --title "${title}" --body "${body}" --head "${head}" --base "${base}"`;
       if (draft) {
-        args.push("--draft");
+        cmd += " --draft";
       }
-      args.push("--json", "number,title,body,url,draft,headRefName,baseRefName");
+      cmd += " --json number,title,body,url,draft,headRefName,baseRefName";
       
-      const result = await Bun.$`${args}`.text();
+      const result = await Bun.$`${cmd}`.text();
       
       const data = JSON.parse(result);
       return {
