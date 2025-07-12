@@ -113,3 +113,43 @@ The project uses:
 - GitHub CLI (`gh`) for GitHub operations
 - Git for version control operations
 - Bun's built-in APIs for file operations and shell commands
+
+## Dogfooding Development Workflow
+
+**CRITICAL**: Use rungs itself for all development to continuously test the tool.
+
+### Development Process
+1. **Make complete, functional commits** - Each commit should be a standalone, working change
+2. **Use rungs push** - Create PRs for each logical change using the tool itself
+3. **Test stacking** - Create multiple PRs to validate stack dependencies work correctly
+4. **Verify behavior** - Use `rungs status` and `gh pr list` to confirm expected state
+5. **Document findings** - Note any issues or improvements discovered through usage
+
+### Commit Guidelines for Dogfooding
+- Each commit must build successfully (`bun run build`)
+- Each commit should include updated binary if code changed
+- Each commit should be a complete feature/fix that could be merged independently
+- Use descriptive commit messages that will become good PR titles
+
+### Example Dogfooding Session
+```bash
+# Make a small, complete improvement
+git commit -m "Add better error message for missing config"
+bun run build  # Ensure it works
+
+# Create PR
+rungs push
+rungs status  # Verify state
+
+# Make another independent improvement  
+git commit -m "Improve help text formatting"
+bun run build
+
+# Create second PR (stacked)
+rungs push
+gh pr list --state open  # Verify both PRs exist with correct bases
+
+# Continue with more changes...
+```
+
+This ensures rungs is constantly tested with real usage patterns.
