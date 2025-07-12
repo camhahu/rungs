@@ -99,6 +99,7 @@ See [docs/README-MAINTENANCE.md](docs/README-MAINTENANCE.md) for detailed guidel
 - Creating or updating documentation  
 - Refactoring code
 - Making changes across multiple files
+- **ALWAYS for updating docs/SPEC.md and docs/ISSUES.md**
 
 ### When Main Agent Acts Directly
 - Reading files to understand current state
@@ -106,6 +107,23 @@ See [docs/README-MAINTENANCE.md](docs/README-MAINTENANCE.md) for detailed guidel
 - Coordinating between subagents
 - Final integration and review
 - User communication and status updates
+
+## Documentation Management
+
+**CRITICAL**: Always keep SPEC.md and ISSUES.md current with implementation.
+
+### Documentation Update Process
+1. **Use subagents** to update docs/SPEC.md and docs/ISSUES.md
+2. **After completing features**: Update ISSUES.md to mark items as complete
+3. **After implementing functionality**: Update SPEC.md to reflect actual behavior
+4. **When discovering gaps**: Add new items to ISSUES.md
+5. **When behavior changes**: Update SPEC.md to match new implementation
+
+### Subagent Instructions for Documentation
+- For ISSUES.md: Mark completed items as `[x]`, add new discovered issues
+- For SPEC.md: Update command descriptions, remove unimplemented features, add new features
+- Always verify changes against actual codebase behavior
+- Include specific examples that match the real implementation
 
 ## Dependencies
 
