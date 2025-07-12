@@ -20,7 +20,7 @@ export class GitManager {
 
   async isGitRepo(): Promise<boolean> {
     try {
-      await Bun.$`git rev-parse --git-dir`;
+      await Bun.$`git rev-parse --git-dir`.quiet();
       return true;
     } catch {
       return false;
@@ -58,7 +58,6 @@ export class GitManager {
 
   async getCommitsSince(baseBranch: string): Promise<GitCommit[]> {
     try {
-      console.log(`Getting commits since: ${baseBranch}`);
       const result = await Bun.$`git log ${baseBranch}..HEAD '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
       
       if (!result.trim()) {

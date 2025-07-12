@@ -11,7 +11,7 @@ export interface PullRequest {
 export class GitHubManager {
   async isGitHubCLIAvailable(): Promise<boolean> {
     try {
-      await Bun.$`gh --version`;
+      await Bun.$`gh --version`.quiet();
       return true;
     } catch {
       return false;
@@ -20,7 +20,7 @@ export class GitHubManager {
 
   async isAuthenticated(): Promise<boolean> {
     try {
-      await Bun.$`gh auth status`;
+      await Bun.$`gh auth status`.quiet();
       return true;
     } catch {
       return false;
