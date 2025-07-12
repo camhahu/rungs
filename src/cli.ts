@@ -12,6 +12,7 @@ interface CliOptions {
   config?: string;
   verbose?: boolean;
   autoPublish?: boolean;
+  force?: boolean;
 }
 
 const COMMANDS = {
@@ -37,7 +38,8 @@ async function main() {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
         verbose: { type: "boolean", short: "v" },
-        "auto-publish": { type: "boolean" }
+        "auto-publish": { type: "boolean" },
+        force: { type: "boolean", short: "f" }
       },
       allowPositionals: true
     });
@@ -119,11 +121,13 @@ OPTIONS:
   -h, --help         Show help information
   -c, --config PATH  Specify config file path
   -v, --verbose      Enable verbose output
+  -f, --force        Force operation, bypassing safety checks
       --auto-publish Create PRs as published instead of draft
 
 EXAMPLES:
   rungs push                       # Create/update stack with current commits
   rungs push --auto-publish        # Create PRs as published instead of draft
+  rungs push --force               # Create PRs even if local is out of sync
   rungs publish 123                # Mark PR #123 as ready for review
   rungs publish                    # Mark top PR in stack as ready for review
   rungs status                     # Show current stack status
@@ -136,7 +140,7 @@ For more information, visit: https://github.com/camhahu/rungs
 
 async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
   output.startSection("Push Stack Operation", "stack");
-  await stack.pushStack(options.autoPublish);
+  await stack.pushStack(options.autoPublish, options.force);
   output.success("Stack operation completed successfully!");
   output.endSection();
 }

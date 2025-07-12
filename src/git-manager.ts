@@ -12,6 +12,16 @@ export interface GitStatus {
   behind: number;
 }
 
+export type SyncStatus = "clean" | "ahead" | "behind" | "diverged";
+
+export interface SyncCheckResult {
+  status: SyncStatus;
+  aheadCount: number;
+  behindCount: number;
+  localCommits: string[];
+  remoteCommits: string[];
+}
+
 export class GitManager {
   async getCurrentBranch(): Promise<string> {
     const result = await Bun.$`git rev-parse --abbrev-ref HEAD`.text();
@@ -154,6 +164,103 @@ export class GitManager {
       return result.trim();
     } catch (error) {
       throw new Error(`Failed to get commit message for ${hash}: ${error}`);
+    }
+  }
+
+  async getSyncStatus(remoteBranch: string): Promise<SyncCheckResult> {
+    try {
+      // Ensure we have latest remote info
+      await this.fetchOrigin();
+      
+      const remoteRef = `origin/${remoteBranch}`;
+      
+      // Check if remote branch exists
+      try {
+        await Bun.$`git rev-parse --verify ${remoteRef}`.quiet();
+      } catch {
+        // Remote branch doesn't exist, consider it clean
+        return {
+          status: "clean",
+          aheadCount: 0,
+          behindCount: 0,
+          localCommits: [],
+          remoteCommits: []
+        };
+      }
+      
+      // Get commits that are ahead (local has but remote doesn't)
+      const aheadResult = await Bun.$`git rev-list --count ${remoteRef}..HEAD`.text();
+      const aheadCount = parseInt(aheadResult.trim()) || 0;
+      
+      // Get commits that are behind (remote has but local doesn't)  
+      const behindResult = await Bun.$`git rev-list --count HEAD..${remoteRef}`.text();
+      const behindCount = parseInt(behindResult.trim()) || 0;
+      
+      // Get actual commit hashes for detailed analysis
+      let localCommits: string[] = [];
+      let remoteCommits: string[] = [];
+      
+      if (aheadCount > 0) {
+        const localResult = await Bun.$`git rev-list ${remoteRef}..HEAD`.text();
+        localCommits = localResult.trim().split('\n').filter(Boolean);
+      }
+      
+      if (behindCount > 0) {
+        const remoteResult = await Bun.$`git rev-list HEAD..${remoteRef}`.text();
+        remoteCommits = remoteResult.trim().split('\n').filter(Boolean);
+      }
+      
+      // Determine sync status
+      let status: SyncStatus;
+      if (aheadCount === 0 && behindCount === 0) {
+        status = "clean";
+      } else if (aheadCount > 0 && behindCount === 0) {
+        status = "ahead";
+      } else if (aheadCount === 0 && behindCount > 0) {
+        status = "behind";
+      } else {
+        status = "diverged";
+      }
+      
+      return {
+        status,
+        aheadCount,
+        behindCount,
+        localCommits,
+        remoteCommits
+      };
+    } catch (error) {
+      throw new Error(`Failed to check sync status with ${remoteBranch}: ${error}`);
+    }
+  }
+
+  async detectDuplicateCommits(remoteBranch: string): Promise<{ hasDuplicates: boolean; duplicateMessages: string[] }> {
+    try {
+      const remoteRef = `origin/${remoteBranch}`;
+      
+      // Get local commits ahead of remote
+      const localResult = await Bun.$`git log ${remoteRef}..HEAD --pretty=format:"%s"`.text();
+      const localMessages = localResult.trim().split('\n').filter(Boolean);
+      
+      if (localMessages.length === 0) {
+        return { hasDuplicates: false, duplicateMessages: [] };
+      }
+      
+      // Get recent remote commits  
+      const remoteResult = await Bun.$`git log ${remoteRef} --pretty=format:"%s" -20`.text();
+      const recentRemoteMessages = remoteResult.trim().split('\n').filter(Boolean);
+      
+      // Check for duplicate commit messages
+      const duplicates = localMessages.filter(msg => 
+        recentRemoteMessages.some(remoteMsg => remoteMsg.trim() === msg.trim())
+      );
+      
+      return {
+        hasDuplicates: duplicates.length > 0,
+        duplicateMessages: duplicates
+      };
+    } catch (error) {
+      throw new Error(`Failed to detect duplicate commits: ${error}`);
     }
   }
 

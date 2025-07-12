@@ -35,14 +35,21 @@ rungs push [options]
 ```
 
 **Behavior:**
+- **Sync validation**: Checks that local branch is in sync with remote before creating PRs
 - Automatically syncs with GitHub to get current PR status
 - Creates one PR containing all new commits since last push
 - Automatically detects merged PRs and updates stack state
 - Uses automatic rebase when merged PRs are detected
 
+**Sync Validation:**
+- Detects when local branch is ahead/behind/diverged from remote
+- Identifies duplicate commits that may cause merge conflicts
+- Provides specific resolution guidance for each scenario
+- Prevents creation of unmergeable PRs
+
 **Options:**
-- `--draft` - Create PR in draft mode (default: true)
-- `--ready` - Create PR in ready-for-review mode
+- `--auto-publish` - Create PR in ready-for-review mode (default: draft)
+- `--force` - Bypass sync validation checks (not recommended)
 
 #### `rungs status`
 Shows current state of stacks and PRs with GitHub sync.
