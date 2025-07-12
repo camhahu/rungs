@@ -211,6 +211,18 @@ export class StackManager {
     
     console.log(`✅ Successfully merged PR #${prNumber}`);
     
+    // Auto-pull latest changes to keep local main up to date
+    console.log("🔄 Updating local main with latest changes...");
+    try {
+      const config = await this.config.getAll();
+      console.log("  🔄 Fetching from remote...");
+      console.log("  🔄 Rebasing local changes...");
+      await this.git.pullLatestChanges(config.defaultBranch);
+      console.log("  ✅ Local main is now up to date");
+    } catch (error) {
+      console.warn(`  ⚠️ Warning: Could not update local ${config.defaultBranch}: ${error}`);
+    }
+    
     // Sync state and update remaining PRs (this triggers auto-rebase)
     console.log("Updating stack state...");
     await this.syncWithGitHub();
@@ -293,6 +305,31 @@ export class StackManager {
     // List the commits being processed
     const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
     output.logList(commitList, "Commits to process:", "info");
+    endGroup();
+
+    // Check for duplicate PRs with these commits
+    startGroup("Checking for Duplicate PRs", "github");
+    logProgress("Searching for existing PRs with these commits...");
+    
+    const commitShas = newCommits.map(c => c.hash);
+    const existingPRs = await this.github.findPRsWithCommits(commitShas);
+    
+    if (existingPRs.length > 0) {
+      const existingPR = existingPRs[0]; // Use the first matching PR
+      endGroup();
+      
+      logWarning("❌ These commits already exist in an existing PR");
+      logInfo(`PR #${existingPR.number}: ${existingPR.title}`);
+      logInfo(`URL: ${existingPR.url}`);
+      logInfo(`Status: ${existingPR.status}`);
+      logInfo("");
+      logInfo("No new PR created. You can:");
+      logInfo(`  - Update PR #${existingPR.number} if needed`);
+      logInfo("  - Run 'rungs status' to see current PRs");
+      return;
+    }
+    
+    logSuccess("No duplicate PRs found");
     endGroup();
 
     // Create branch for the new commits

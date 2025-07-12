@@ -302,4 +302,28 @@ export class GitManager {
         return fullBranchName;
     }
   }
+
+  async pullLatestChanges(branch: string): Promise<void> {
+    try {
+      // Fetch latest changes from remote
+      await Bun.$`git fetch origin`;
+      
+      // Check if we're on the target branch
+      const currentBranch = await this.getCurrentBranch();
+      if (currentBranch !== branch) {
+        await this.checkoutBranch(branch);
+      }
+      
+      // Rebase local changes on top of remote (cleaner than merge)
+      await Bun.$`git rebase origin/${branch}`;
+    } catch (error) {
+      // If rebase fails, try to abort it
+      try {
+        await Bun.$`git rebase --abort`;
+      } catch {
+        // Ignore abort errors
+      }
+      throw new Error(`Failed to pull latest changes for ${branch}: ${error}`);
+    }
+  }
 }

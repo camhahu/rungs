@@ -301,4 +301,44 @@ export class GitHubManager {
     const commitList = commits.map(commit => `- ${commit.message}`).join('\n');
     return `Stack of ${commits.length} commits:\n\n${commitList}`;
   }
+
+  async findPRsWithCommits(commitShas: string[]): Promise<Array<{number: number, url: string, title: string, status: string}>> {
+    try {
+      // Get all open PRs
+      const result = await Bun.$`gh pr list --state open --json number,title,url,headRefName`.text();
+      const openPRs = JSON.parse(result);
+      
+      const matchingPRs: Array<{number: number, url: string, title: string, status: string}> = [];
+      
+      // Check each PR's commits
+      for (const pr of openPRs) {
+        try {
+          // Get commits in this PR's branch
+          const branchCommitsResult = await Bun.$`git log origin/${pr.headRefName} --pretty=format:"%H"`.text();
+          const branchCommits = branchCommitsResult.trim().split('\n').filter(Boolean);
+          
+          // Check if any of our target commits exist in this branch
+          const hasMatchingCommits = commitShas.some(sha => 
+            branchCommits.some(branchSha => branchSha.startsWith(sha) || sha.startsWith(branchSha))
+          );
+          
+          if (hasMatchingCommits) {
+            matchingPRs.push({
+              number: pr.number,
+              url: pr.url,
+              title: pr.title,
+              status: "open"
+            });
+          }
+        } catch (error) {
+          // Skip PRs where we can't check commits (e.g., branch doesn't exist locally)
+          continue;
+        }
+      }
+      
+      return matchingPRs;
+    } catch (error) {
+      throw new Error(`Failed to search for PRs with commits: ${error}`);
+    }
+  }
 }
