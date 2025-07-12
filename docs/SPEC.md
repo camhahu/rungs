@@ -224,7 +224,7 @@ Will manually sync with remote changes.
 
 ### File System Interactions
 - Read/write `~/.config/rungs/config.json` configuration file
-- Read/write `~/.config/rungs/{owner}/{repo}/state.json` for stack state per repository
+- Discover stack state from GitHub PRs (no local state files)
 - Create temporary branch references
 - Read Git history and commit information
 
@@ -305,7 +305,7 @@ rungs status
 - Support GitHub Enterprise via `gh` configuration
 
 ### State Management
-- Track stack state in `~/.config/rungs/{owner}/{repo}/state.json`
+- Discover stack state from GitHub PRs (GitHub-first approach)
 - Maintain branch-to-PR mapping
 - Sync with GitHub to keep state current
 - Simple configuration in `~/.config/rungs/config.json`

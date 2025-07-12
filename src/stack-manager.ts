@@ -525,6 +525,13 @@ Stack Status (from GitHub):
         throw new Error("No PRs found in current stack");
       }
       prNumber = currentStack.prs[currentStack.prs.length - 1].number;
+    } else {
+      // If a specific PR number is provided, check if it's in our current stack
+      const currentStack = await this.getCurrentStack();
+      const isInStack = currentStack.prs.some(pr => pr.number === prNumber);
+      if (!isInStack) {
+        console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
+      }
     }
     
     await this.github.publishPullRequest(prNumber);

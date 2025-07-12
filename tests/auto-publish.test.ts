@@ -76,14 +76,11 @@ test("auto-publish creates PR as ready for review", async () => {
   const github = new MockGitHubManager();
   const stack = new StackManager(config as any, git as any, github as any);
 
-  // Mock the state management
-  (stack as any).loadState = async () => ({
-    lastProcessedCommit: null,
-    branches: [],
-    pullRequests: [],
-    lastBranch: null
+  // Mock the GitHub stack discovery
+  (stack as any).getCurrentStack = async () => ({
+    prs: [],
+    totalCommits: 0
   });
-  (stack as any).saveState = async () => {};
   (stack as any).validateSyncStatus = async () => {};
 
   // Test with auto-publish enabled
@@ -99,14 +96,11 @@ test("default behavior creates draft PR when draftPRs is true", async () => {
   const github = new MockGitHubManager();
   const stack = new StackManager(config as any, git as any, github as any);
 
-  // Mock the state management
-  (stack as any).loadState = async () => ({
-    lastProcessedCommit: null,
-    branches: [],
-    pullRequests: [],
-    lastBranch: null
+  // Mock the GitHub stack discovery
+  (stack as any).getCurrentStack = async () => ({
+    prs: [],
+    totalCommits: 0
   });
-  (stack as any).saveState = async () => {};
   (stack as any).validateSyncStatus = async () => {};
 
   // Test without auto-publish (should respect config.draftPRs = true)

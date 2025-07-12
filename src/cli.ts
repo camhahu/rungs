@@ -138,21 +138,21 @@ For more information, visit: https://github.com/camhahu/rungs
 `);
 }
 
-async function handlePush(stack: GitHubStackManager, args: string[], options: CliOptions) {
+async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
   output.startSection("Push Stack Operation", "stack");
   await stack.pushStack(options.autoPublish, options.force);
   output.success("Stack operation completed successfully!");
   output.endSection();
 }
 
-async function handleStatus(stack: GitHubStackManager, options: CliOptions) {
+async function handleStatus(stack: StackManager, options: CliOptions) {
   output.startSection("Stack Status", "stack");
   const status = await stack.getStatus();
   console.log(status);
   output.endSection();
 }
 
-async function handlePublish(stack: GitHubStackManager, args: string[], options: CliOptions) {
+async function handlePublish(stack: StackManager, args: string[], options: CliOptions) {
   const [prNumberStr] = args;
   
   output.startSection("Publish Pull Request", "github");
@@ -176,7 +176,7 @@ async function handlePublish(stack: GitHubStackManager, args: string[], options:
   output.endSection();
 }
 
-async function handleMerge(stack: GitHubStackManager, args: string[], options: CliOptions) {
+async function handleMerge(stack: StackManager, args: string[], options: CliOptions) {
   const [prNumberStr, ...flags] = args;
   
   // Parse options
@@ -215,8 +215,8 @@ async function handleMerge(stack: GitHubStackManager, args: string[], options: C
   output.endSection();
 }
 
-async function handleRebase(stack: GitHubStackManager, args: string[], options: CliOptions) {
-  // The new GitHubStackManager auto-fixes broken chains during normal operations
+async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
+  // The new StackManager auto-fixes broken chains during normal operations
   output.startSection("Rebase Stack", "stack");
   output.info("The new GitHub-first stack manager automatically fixes broken chains.");
   output.info("Stack bases are updated automatically when you run 'rungs status' or 'rungs stack'.");
