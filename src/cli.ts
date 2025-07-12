@@ -5,6 +5,7 @@ import { GitManager } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
 import { ConfigManager } from "./config-manager.js";
 import { StackManager } from "./stack-manager.js";
+import { output, setVerbose, logSummary } from "./output-manager.js";
 
 interface CliOptions {
   help?: boolean;
@@ -53,9 +54,14 @@ async function main() {
     }
 
     if (!isValidCommand(command)) {
-      console.error(`Unknown command: ${command}`);
-      console.error("Run 'rungs help' for available commands.");
+      output.error(`Unknown command: ${command}`);
+      output.info("Run 'rungs help' for available commands.");
       process.exit(1);
+    }
+
+    // Set verbose mode if requested
+    if (options.verbose) {
+      setVerbose(true);
     }
 
     const config = new ConfigManager(options.config);
@@ -83,11 +89,11 @@ async function main() {
         await handleConfig(config, args, options);
         break;
       default:
-        console.error(`Command not implemented: ${command}`);
+        output.error(`Command not implemented: ${command}`);
         process.exit(1);
     }
   } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : String(error));
+    output.error(error instanceof Error ? error.message : String(error));
     if (process.argv.includes("--verbose") || process.argv.includes("-v")) {
       console.error(error);
     }
@@ -129,35 +135,41 @@ For more information, visit: https://github.com/camhahu/rungs
 }
 
 async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
-  console.log("Creating or updating stack...");
+  output.startSection("Push Stack Operation", "stack");
   await stack.pushStack(options.autoPublish);
-  console.log("Stack operation completed successfully!");
+  output.success("Stack operation completed successfully!");
+  output.endSection();
 }
 
 async function handleStatus(stack: StackManager, options: CliOptions) {
-  console.log("Checking stack status...");
+  output.startSection("Stack Status", "stack");
   const status = await stack.getStatus();
   console.log(status);
+  output.endSection();
 }
 
 async function handlePublish(stack: StackManager, args: string[], options: CliOptions) {
   const [prNumberStr] = args;
   
+  output.startSection("Publish Pull Request", "github");
+  
   if (prNumberStr) {
     const prNumber = parseInt(prNumberStr);
     if (isNaN(prNumber)) {
-      console.error("Error: PR number must be a valid integer");
+      output.error("PR number must be a valid integer");
       process.exit(1);
     }
     
-    console.log(`Publishing PR #${prNumber}...`);
+    output.progress(`Publishing PR #${prNumber}...`);
     await stack.publishPullRequest(prNumber);
-    console.log(`✅ Successfully published PR #${prNumber}`);
+    output.success(`Successfully published PR #${prNumber}`);
   } else {
-    console.log("Publishing top PR in stack...");
+    output.progress("Publishing top PR in stack...");
     await stack.publishPullRequest();
-    console.log("✅ Successfully published top PR in stack");
+    output.success("Successfully published top PR in stack");
   }
+  
+  output.endSection();
 }
 
 async function handleMerge(stack: StackManager, args: string[], options: CliOptions) {
@@ -190,46 +202,57 @@ async function handleMerge(stack: StackManager, args: string[], options: CliOpti
   const prNumber = prNumberStr ? parseInt(prNumberStr) : undefined;
   
   if (prNumberStr && isNaN(prNumber!)) {
-    console.error("Error: PR number must be a valid integer");
+    output.error("PR number must be a valid integer");
     process.exit(1);
   }
   
+  output.startSection("Merge Pull Request", "github");
   await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+  output.endSection();
 }
 
 async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
   const [prNumber] = args;
   
   if (!prNumber) {
-    console.error("Usage: rungs rebase <pr-number>");
-    console.error("Rebase the stack after PR <pr-number> has been merged.");
+    output.error("Usage: rungs rebase <pr-number>");
+    output.error("Rebase the stack after PR <pr-number> has been merged.");
     process.exit(1);
   }
   
-  console.log(`Rebasing stack after PR #${prNumber} merge...`);
+  output.startSection("Rebase Stack", "stack");
+  output.progress(`Rebasing stack after PR #${prNumber} merge...`);
   await stack.rebaseStack(parseInt(prNumber));
-  console.log("Stack rebased successfully!");
+  output.success("Stack rebased successfully!");
+  output.endSection();
 }
 
 async function handleConfig(config: ConfigManager, args: string[], options: CliOptions) {
   const [action, key, value] = args;
   
+  output.startSection("Configuration", "config");
+  
   if (action === "set" && key && value) {
     await config.set(key, value);
-    console.log(`Set ${key} = ${value}`);
+    output.success(`Set ${key} = ${value}`);
   } else if (action === "get" && key) {
     const val = await config.get(key);
-    console.log(`${key} = ${val ?? "undefined"}`);
+    output.info(`${key} = ${val ?? "undefined"}`);
   } else if (action === "list" || !action) {
     const allConfig = await config.getAll();
-    console.log("Configuration:");
-    for (const [k, v] of Object.entries(allConfig)) {
-      console.log(`  ${k} = ${v}`);
-    }
+    
+    const configItems = Object.entries(allConfig).map(([k, v]) => ({
+      label: k,
+      value: v
+    }));
+    
+    logSummary("Current Configuration", configItems);
   } else {
-    console.error("Usage: rungs config [set <key> <value> | get <key> | list]");
+    output.error("Usage: rungs config [set <key> <value> | get <key> | list]");
     process.exit(1);
   }
+  
+  output.endSection();
 }
 
 if (import.meta.main) {
