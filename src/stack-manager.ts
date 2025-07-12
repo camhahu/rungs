@@ -494,7 +494,7 @@ Stack Status (from GitHub):
     if (prBeingMerged && deleteBranch) {
       // Find PRs that will be affected by this merge (those pointing to the branch being deleted)
       const dependentPRs = currentStack.prs.filter(pr =>
-        pr.baseRefName === prBeingMerged.headRefName && pr.number !== prNumber
+        pr.base === prBeingMerged.head && pr.number !== prNumber
       );
 
       if (dependentPRs.length > 0) {
@@ -502,19 +502,13 @@ Stack Status (from GitHub):
         logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
 
         for (const dependentPR of dependentPRs) {
-          // DEBUG: Log the actual PR data
-          console.log("DEBUG dependentPR:", JSON.stringify(dependentPR, null, 2));
-          console.log("DEBUG currentStack.prs:", JSON.stringify(currentStack.prs, null, 2));
-          
           // Find the correct new base for this PR
           const prIndex = currentStack.prs.findIndex(pr => pr.number === dependentPR.number);
           const config = await this.config.getAll();
-          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : config.defaultBranch;
-          
-          console.log("DEBUG prIndex:", prIndex, "newBase:", newBase, "config.defaultBranch:", config.defaultBranch);
+          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].head : config.defaultBranch;
 
           try {
-            logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.baseRefName} -> ${newBase}`, 1);
+            logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.base} -> ${newBase}`, 1);
             await this.github.updatePullRequestBase(dependentPR.number, newBase);
             logSuccess(`Pre-updated PR #${dependentPR.number} base to avoid auto-closure`, 1);
           } catch (error) {
