@@ -502,10 +502,10 @@ Stack Status (from GitHub):
         logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
 
         for (const dependentPR of dependentPRs) {
-          // Find the correct new base for this PR
-          const prIndex = currentStack.prs.findIndex(pr => pr.number === dependentPR.number);
+          // Find the correct new base for this PR AFTER the merge
+          const prBeingMergedIndex = currentStack.prs.findIndex(pr => pr.number === prNumber);
           const config = await this.config.getAll();
-          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].head : config.defaultBranch;
+          const newBase = prBeingMergedIndex > 0 ? currentStack.prs[prBeingMergedIndex - 1].head : config.defaultBranch;
 
           try {
             logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.base} -> ${newBase}`, 1);

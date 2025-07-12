@@ -1070,9 +1070,9 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
         startGroup(`Pre-merge stack updates`, "github");
         logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
         for (const dependentPR of dependentPRs) {
-          const prIndex = currentStack.prs.findIndex((pr) => pr.number === dependentPR.number);
+          const prBeingMergedIndex = currentStack.prs.findIndex((pr) => pr.number === prNumber);
           const config = await this.config.getAll();
-          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].head : config.defaultBranch;
+          const newBase = prBeingMergedIndex > 0 ? currentStack.prs[prBeingMergedIndex - 1].head : config.defaultBranch;
           try {
             logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.base} -> ${newBase}`, 1);
             await this.github.updatePullRequestBase(dependentPR.number, newBase);
