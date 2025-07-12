@@ -59,6 +59,7 @@ export class GitManager {
   async getCommitsSince(baseBranch: string): Promise<GitCommit[]> {
     try {
       const cmd = `git log ${baseBranch}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=iso`;
+      console.log(`Running command: ${cmd}`);
       const result = await Bun.$`${cmd}`.text();
       
       if (!result.trim()) {
