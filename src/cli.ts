@@ -16,7 +16,7 @@ interface CliOptions {
 }
 
 const COMMANDS = {
-  push: "Create a new stack or add commits to existing stack",
+  stack: "Create a new stack or add commits to existing stack",
   status: "Show current stack status",
   merge: "Merge PRs and update stack state",
   publish: "Mark PR as ready for review (remove draft status)",
@@ -72,7 +72,7 @@ async function main() {
     const stack = new StackManager(config, git, github);
 
     switch (command) {
-      case "push":
+      case "stack":
         await handlePush(stack, args, options);
         break;
       case "status":
@@ -125,9 +125,9 @@ OPTIONS:
       --auto-publish Create PRs as published instead of draft
 
 EXAMPLES:
-  rungs push                       # Create/update stack with current commits
-  rungs push --auto-publish        # Create PRs as published instead of draft
-  rungs push --force               # Create PRs even if local is out of sync
+  rungs stack                      # Create/update stack with current commits
+  rungs stack --auto-publish       # Create PRs as published instead of draft
+  rungs stack --force              # Create PRs even if local is out of sync
   rungs publish 123                # Mark PR #123 as ready for review
   rungs publish                    # Mark top PR in stack as ready for review
   rungs status                     # Show current stack status
