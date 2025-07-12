@@ -89,7 +89,27 @@ export class StackManager {
     const state = await this.loadState();
     
     // Get commits since last processed or since origin/main
-    const baseRef = state.lastProcessedCommit || `origin/${config.defaultBranch}`;
+    let baseRef: string;
+    if (state.lastProcessedCommit) {
+      baseRef = state.lastProcessedCommit;
+    } else {
+      // For first run, check if origin branch exists, otherwise use a reasonable base
+      try {
+        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`;
+        baseRef = `origin/${config.defaultBranch}`;
+      } catch {
+        // Origin branch doesn't exist, get all commits on current branch
+        // Find the root commit or use a reasonable base
+        try {
+          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+          baseRef = rootCommit.trim();
+        } catch {
+          // If all else fails, just get the last few commits
+          baseRef = `HEAD~10`; // Arbitrary limit to avoid too many commits
+        }
+      }
+    }
+    
     const newCommits = await this.git.getCommitsSince(baseRef);
     
     if (newCommits.length === 0) {
@@ -156,7 +176,23 @@ You can now continue working on ${config.defaultBranch} and run 'rungs push' aga
     const gitStatus = await this.git.getStatus();
     const state = await this.loadState();
 
-    const baseRef = state.lastProcessedCommit || `origin/${config.defaultBranch}`;
+    let baseRef: string;
+    if (state.lastProcessedCommit) {
+      baseRef = state.lastProcessedCommit;
+    } else {
+      try {
+        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`;
+        baseRef = `origin/${config.defaultBranch}`;
+      } catch {
+        try {
+          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+          baseRef = rootCommit.trim();
+        } catch {
+          baseRef = `HEAD~10`;
+        }
+      }
+    }
+    
     const newCommits = await this.git.getCommitsSince(baseRef);
 
     let statusMessage = `
