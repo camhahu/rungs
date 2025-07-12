@@ -104,6 +104,8 @@ rungs merge 123 --merge      # Merge commit
 rungs merge 123 --rebase     # Rebase merge
 ```
 
+> **🎯 Smart Stack Management**: Automatically updates dependent PRs before merging to prevent GitHub auto-closure. Your stack stays intact with correct diffs!
+
 ### `rungs config`
 ⚙️ Manage configuration
 ```bash
