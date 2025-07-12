@@ -174,3 +174,24 @@ test("mergePullRequest handles middle PR merge correctly", async () => {
   expect(pr3?.state).toBe("open");
   expect(pr3?.baseRefName).toBe("user/branch-1");
 });
+
+test("mergePullRequest handles no dependent PRs gracefully", async () => {
+  const mockGitHub = new MockGitHubClient();
+  
+  // Setup a single PR (no dependencies)
+  mockGitHub.getPRs().push({
+    number: 1,
+    title: "Single PR",
+    url: "https://github.com/test/repo/pull/1",
+    headRefName: "user/branch-1", 
+    baseRefName: "main",
+    state: 'open'
+  });
+  
+  // Merge the PR
+  await mockGitHub.mergePullRequest(1, "squash", true);
+  
+  // Verify no base update calls were made (no dependent PRs)
+  expect(mockGitHub.getBaseUpdateCalls()).toHaveLength(0);
+  expect(mockGitHub.getMergeCalls()).toHaveLength(1);
+});
