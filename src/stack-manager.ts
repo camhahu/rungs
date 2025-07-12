@@ -349,9 +349,11 @@ You can now continue working on ${config.defaultBranch} and run 'rungs push' aga
     const state = await this.loadState();
 
     let baseRef: string;
-    if (state.lastProcessedCommit) {
+    if (state.lastProcessedCommit && state.pullRequests.length > 0) {
+      // Only use lastProcessedCommit if we have active PRs
       baseRef = state.lastProcessedCommit;
     } else {
+      // If no active PRs, compare against origin/main
       try {
         await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`.quiet();
         baseRef = `origin/${config.defaultBranch}`;

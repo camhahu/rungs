@@ -607,7 +607,7 @@ You can now continue working on ${config.defaultBranch} and run 'rungs push' aga
     const gitStatus = await this.git.getStatus();
     const state = await this.loadState();
     let baseRef;
-    if (state.lastProcessedCommit) {
+    if (state.lastProcessedCommit && state.pullRequests.length > 0) {
       baseRef = state.lastProcessedCommit;
     } else {
       try {
