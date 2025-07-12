@@ -95,7 +95,7 @@ export class StackManager {
     } else {
       // For first run, check if origin branch exists, otherwise use a reasonable base
       try {
-        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`;
+        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`.quiet();
         baseRef = `origin/${config.defaultBranch}`;
         console.log(`Using origin branch as base: ${baseRef}`);
       } catch {
@@ -182,7 +182,7 @@ You can now continue working on ${config.defaultBranch} and run 'rungs push' aga
       baseRef = state.lastProcessedCommit;
     } else {
       try {
-        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`;
+        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`.quiet();
         baseRef = `origin/${config.defaultBranch}`;
       } catch {
         try {
