@@ -504,7 +504,8 @@ Stack Status (from GitHub):
         for (const dependentPR of dependentPRs) {
           // Find the correct new base for this PR
           const prIndex = currentStack.prs.findIndex(pr => pr.number === dependentPR.number);
-          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : await this.config.get('defaultBranch');
+          const config = await this.config.getAll();
+          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : config.defaultBranch;
           
           try {
             logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.baseRefName} -> ${newBase}`, 1);
