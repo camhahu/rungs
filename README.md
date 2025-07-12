@@ -87,6 +87,88 @@ rungs push                               # → PR #3 (E)
 
 **Result**: Three focused, reviewable PRs instead of one massive PR with 5 commits.
 
+## 🔄 Complete User Workflow
+
+Here's the full lifecycle of working with stacked diffs, including how to handle PR merges:
+
+### 1. Initial Development
+```bash
+# Start development on main
+git checkout main
+git pull origin main
+
+# Make incremental commits
+git commit -m "Add user authentication model"
+git commit -m "Add password hashing utility"
+rungs push                                    # → Creates PR #42
+
+git commit -m "Add login endpoint"
+git commit -m "Add JWT token generation"  
+rungs push                                    # → Creates PR #43
+
+git commit -m "Add login form component"
+rungs push                                    # → Creates PR #44
+```
+
+### 2. Review and Merge Process
+```bash
+# Check current stack status
+rungs status
+# Shows:
+# Active PRs: #42, #43, #44
+# Dependencies: #43 builds on #42, #44 builds on #43
+```
+
+### 3. When PRs Get Merged
+After PR #42 gets merged into main:
+
+```bash
+# Clean up the stack after merge
+rungs rebase 42
+
+# This automatically:
+# - Removes PR #42 from tracking
+# - Updates PR #43 to base on main (instead of #42's branch)  
+# - Updates PR #44 to base on #43's branch
+# - Maintains clean commit history
+```
+
+### 4. Continue Development
+```bash
+# After rebase, continue working
+git commit -m "Add password reset feature"
+rungs push                                    # → Creates PR #45
+
+rungs status
+# Now shows:
+# Active PRs: #43, #44, #45
+# Clean dependency chain maintained
+```
+
+### 5. Complete Feature Lifecycle
+```bash
+# As each PR gets reviewed and merged:
+
+# PR #43 gets merged
+rungs rebase 43
+# Now PR #44 bases on main, PR #45 bases on #44
+
+# PR #44 gets merged  
+rungs rebase 44
+# Now only PR #45 remains, bases on main
+
+# PR #45 gets merged
+rungs status
+# Shows: No active PRs, ready for next feature
+```
+
+### Key Benefits of This Workflow
+
+**🎯 Focused Reviews**: Each PR contains logically related changes  
+**🚀 Parallel Development**: Work on new features while others are in review  
+**🔧 Easy Maintenance**: Automatic stack cleanup with `rungs rebase`  
+**📈 Better Velocity**: Merge parts of features as they're ready  
+
 ## 🛠️ Commands
 
 ### `rungs push`
@@ -103,6 +185,19 @@ rungs push --help            # Show push command options
 - Pushes branch to GitHub
 - Creates a draft pull request
 - Updates local state to track the new stack
+
+### `rungs rebase`
+Cleans up the stack after a PR has been merged, maintaining proper dependencies.
+
+```bash
+rungs rebase <pr-number>          # Rebase after PR is merged
+```
+
+**What it does:**
+- Removes the merged PR from tracking
+- Updates base branches for remaining PRs in the stack
+- Maintains clean commit history without duplicates
+- Preserves the logical dependency chain
 
 ### `rungs status`
 Shows current repository and stack status.
@@ -326,6 +421,52 @@ rungs push  # → PR #2: Database optimizations
 git commit -m "Update API documentation with performance notes"
 rungs push  # → PR #3: Documentation update
 ```
+
+### Example 3: Complete Stack Lifecycle with Rebase
+
+```bash
+# Scenario: Feature development with PR merges
+
+# Initial development
+git commit -m "Add payment model"
+git commit -m "Add payment validation"
+rungs push  # → PR #10: Payment foundation
+
+git commit -m "Add payment API endpoints"  
+git commit -m "Add error handling"
+rungs push  # → PR #11: Payment API (builds on PR #10)
+
+git commit -m "Add payment UI components"
+rungs push  # → PR #12: Payment UI (builds on PR #11)
+
+# Check stack status
+rungs status
+# Active PRs: #10, #11, #12
+# Dependencies: #11 → #10, #12 → #11
+
+# PR #10 gets approved and merged
+rungs rebase 10
+# Updates: #11 now bases on main, #12 bases on #11
+
+# Continue development while others are in review
+git commit -m "Add payment analytics"
+rungs push  # → PR #13: Analytics (builds on PR #12)
+
+# PR #11 gets merged
+rungs rebase 11  
+# Updates: #12 now bases on main, #13 bases on #12
+
+# Final state: Clean stack with no duplicate commits
+rungs status
+# Active PRs: #12, #13
+# All PRs have clean, focused commits
+```
+
+**Benefits:**
+- Clean commit history throughout the process
+- No manual rebasing or conflict resolution
+- Each PR remains focused and reviewable  
+- Team can merge PRs as they're ready
 
 ## 🛡️ Troubleshooting
 
