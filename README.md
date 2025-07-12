@@ -17,6 +17,7 @@ Break down large features into reviewable chunks! Create multiple independent pu
 > **First Change**: Testing commit A
 > **Fix Test**: New commit A for testing the fix
 > **Final Test**: Testing the final fix - Commit A
+> **Final Test B**: Testing the final fix - Commit B
 ```bash
 git clone https://github.com/camhahu/rungs.git
 cd rungs
