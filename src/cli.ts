@@ -15,9 +15,12 @@ interface CliOptions {
 const COMMANDS = {
   push: "Create a new stack or add commits to existing stack",
   status: "Show current stack status",
-  rebase: "Rebase stack when PRs are merged",
   config: "Manage configuration",
   help: "Show help information"
+} as const;
+
+const HIDDEN_COMMANDS = {
+  rebase: "Rebase stack when PRs are merged"
 } as const;
 
 type Command = keyof typeof COMMANDS;
@@ -80,7 +83,7 @@ async function main() {
 }
 
 function isValidCommand(cmd: string): cmd is Command {
-  return cmd in COMMANDS;
+  return cmd in COMMANDS || cmd in HIDDEN_COMMANDS;
 }
 
 function showHelp() {

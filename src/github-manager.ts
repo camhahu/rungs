@@ -135,6 +135,17 @@ export class GitHubManager {
     }
   }
 
+  async getPullRequestStatus(prNumber: number): Promise<"open" | "merged" | "closed" | null> {
+    try {
+      const result = await Bun.$`gh pr view ${prNumber} --json state`.text();
+      const data = JSON.parse(result);
+      return data.state.toLowerCase();
+    } catch {
+      // PR doesn't exist or error occurred
+      return null;
+    }
+  }
+
   async listPullRequests(head?: string): Promise<PullRequest[]> {
     try {
       let cmd = "gh pr list --json number,title,body,url,draft,headRefName,baseRefName";

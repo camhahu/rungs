@@ -123,14 +123,14 @@ rungs status
 After PR #42 gets merged into main:
 
 ```bash
-# Clean up the stack after merge
-rungs rebase 42
+# Any rungs command automatically detects and handles merges
+rungs status
 
 # This automatically:
-# - Removes PR #42 from tracking
+# - Detects PR #42 was merged and removes it from tracking
 # - Updates PR #43 to base on main (instead of #42's branch)  
 # - Updates PR #44 to base on #43's branch
-# - Maintains clean commit history
+# - Maintains clean commit history without any manual intervention
 ```
 
 ### 4. Continue Development
@@ -147,14 +147,14 @@ rungs status
 
 ### 5. Complete Feature Lifecycle
 ```bash
-# As each PR gets reviewed and merged:
+# As each PR gets reviewed and merged, rungs automatically handles cleanup:
 
-# PR #43 gets merged
-rungs rebase 43
+# PR #43 gets merged - next rungs command automatically updates bases
+rungs status
 # Now PR #44 bases on main, PR #45 bases on #44
 
-# PR #44 gets merged  
-rungs rebase 44
+# PR #44 gets merged - automatic cleanup again
+rungs push  # Any command triggers sync
 # Now only PR #45 remains, bases on main
 
 # PR #45 gets merged
@@ -166,8 +166,9 @@ rungs status
 
 **🎯 Focused Reviews**: Each PR contains logically related changes  
 **🚀 Parallel Development**: Work on new features while others are in review  
-**🔧 Easy Maintenance**: Automatic stack cleanup with `rungs rebase`  
+**🔧 Easy Maintenance**: Automatic stack cleanup when PRs are merged  
 **📈 Better Velocity**: Merge parts of features as they're ready  
+**🔄 Always Current**: Rungs automatically syncs with GitHub on every command
 
 ## 🛠️ Commands
 
@@ -186,25 +187,18 @@ rungs push --help            # Show push command options
 - Creates a draft pull request
 - Updates local state to track the new stack
 
-### `rungs rebase`
-Cleans up the stack after a PR has been merged, maintaining proper dependencies.
-
-```bash
-rungs rebase <pr-number>          # Rebase after PR is merged
-```
-
-**What it does:**
-- Removes the merged PR from tracking
-- Updates base branches for remaining PRs in the stack
-- Maintains clean commit history without duplicates
-- Preserves the logical dependency chain
-
 ### `rungs status`
-Shows current repository and stack status.
+Shows current repository and stack status with real-time GitHub sync.
 
 ```bash
 rungs status
 ```
+
+**Features:**
+- Automatically syncs with GitHub to show current PR status
+- Removes merged/closed PRs from tracking
+- Shows accurate count of active PRs and branches
+- Displays new commits ready to push
 
 **Example output:**
 ```
@@ -422,10 +416,10 @@ git commit -m "Update API documentation with performance notes"
 rungs push  # → PR #3: Documentation update
 ```
 
-### Example 3: Complete Stack Lifecycle with Rebase
+### Example 3: Complete Stack Lifecycle with Automatic Cleanup
 
 ```bash
-# Scenario: Feature development with PR merges
+# Scenario: Feature development with seamless PR merges
 
 # Initial development
 git commit -m "Add payment model"
@@ -444,17 +438,18 @@ rungs status
 # Active PRs: #10, #11, #12
 # Dependencies: #11 → #10, #12 → #11
 
-# PR #10 gets approved and merged
-rungs rebase 10
-# Updates: #11 now bases on main, #12 bases on #11
+# PR #10 gets approved and merged (on GitHub)
+# Next rungs command automatically detects and handles it
+rungs status
+# Automatically updates: #11 now bases on main, #12 bases on #11
 
 # Continue development while others are in review
 git commit -m "Add payment analytics"
 rungs push  # → PR #13: Analytics (builds on PR #12)
 
-# PR #11 gets merged
-rungs rebase 11  
-# Updates: #12 now bases on main, #13 bases on #12
+# PR #11 gets merged (on GitHub)
+rungs push  # Any command triggers automatic cleanup
+# Automatically updates: #12 now bases on main, #13 bases on #12
 
 # Final state: Clean stack with no duplicate commits
 rungs status
@@ -464,9 +459,9 @@ rungs status
 
 **Benefits:**
 - Clean commit history throughout the process
-- No manual rebasing or conflict resolution
+- Zero manual intervention required for stack maintenance
 - Each PR remains focused and reviewable  
-- Team can merge PRs as they're ready
+- Team can merge PRs as they're ready without coordination
 
 ## 🛡️ Troubleshooting
 
