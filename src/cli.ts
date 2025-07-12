@@ -4,7 +4,7 @@ import { parseArgs } from "util";
 import { GitManager } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
 import { ConfigManager } from "./config-manager.js";
-import { GitHubStackManager } from "./GitHubStackManager.js";
+import { StackManager } from "./stack-manager.js";
 import { output, setVerbose, logSummary } from "./output-manager.js";
 
 interface CliOptions {
@@ -69,7 +69,7 @@ async function main() {
     const config = new ConfigManager(options.config);
     const git = new GitManager();
     const github = new GitHubManager();
-    const stack = new GitHubStackManager(config, git, github);
+    const stack = new StackManager(config, git, github);
 
     switch (command) {
       case "stack":
@@ -215,19 +215,12 @@ async function handleMerge(stack: GitHubStackManager, args: string[], options: C
   output.endSection();
 }
 
-async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
-  const [prNumber] = args;
-  
-  if (!prNumber) {
-    output.error("Usage: rungs rebase <pr-number>");
-    output.error("Rebase the stack after PR <pr-number> has been merged.");
-    process.exit(1);
-  }
-  
+async function handleRebase(stack: GitHubStackManager, args: string[], options: CliOptions) {
+  // The new GitHubStackManager auto-fixes broken chains during normal operations
   output.startSection("Rebase Stack", "stack");
-  output.progress(`Rebasing stack after PR #${prNumber} merge...`);
-  await stack.rebaseStack(parseInt(prNumber));
-  output.success("Stack rebased successfully!");
+  output.info("The new GitHub-first stack manager automatically fixes broken chains.");
+  output.info("Stack bases are updated automatically when you run 'rungs status' or 'rungs stack'.");
+  output.info("Manual rebase is no longer needed!");
   output.endSection();
 }
 

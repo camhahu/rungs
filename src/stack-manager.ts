@@ -1,86 +1,34 @@
 import { ConfigManager } from "./config-manager.js";
 import { GitManager, GitCommit } from "./git-manager.js";
-import { GitHubManager } from "./github-manager.js";
+import { GitHubManager, PullRequest } from "./github-manager.js";
 import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo, logSummary } from "./output-manager.js";
-import * as path from "path";
-import * as os from "os";
 
-interface StackState {
-  lastProcessedCommit?: string;
-  branches: string[];
-  pullRequests: number[];
-  lastBranch?: string; // Track the previous branch for stacking
+export interface StackPR {
+  number: number;
+  branch: string;
+  title: string;
+  url: string;
+  base: string;
+  head: string;
+  commits?: GitCommit[];
 }
 
-export class StackManager {
-  private stateFile: string | null = null;
+export interface StackState {
+  prs: StackPR[];
+  totalCommits: number;
+  lastBranch?: string;
+}
 
+/**
+ * GitHub-first StackManager that uses GitHub as the single source of truth.
+ * Eliminates local state files and discovers stack information from GitHub.
+ */
+export class StackManager {
   constructor(
     private config: ConfigManager,
     private git: GitManager,
     private github: GitHubManager
-  ) {
-    // State file path will be determined when we need it (after ensuring we're in a git repo)
-  }
-
-  private async getStateFilePath(): Promise<string> {
-    if (this.stateFile) {
-      return this.stateFile;
-    }
-
-    // Get repository information
-    const repoInfo = await this.getRepositoryInfo();
-    
-    // Create state directory path: ~/.config/rungs/{owner}/{repo}/
-    const stateDir = path.join(os.homedir(), ".config", "rungs", repoInfo.owner, repoInfo.repo);
-    const stateFilePath = path.join(stateDir, "state.json");
-    
-    // Ensure directory exists
-    await this.ensureDirectoryExists(stateDir);
-    
-    this.stateFile = stateFilePath;
-    return stateFilePath;
-  }
-
-  private async getRepositoryInfo(): Promise<{ owner: string; repo: string }> {
-    try {
-      // Get the remote URL
-      const result = await Bun.$`git config --get remote.origin.url`;
-      
-      // Handle different return formats (test vs real environment)
-      let url: string;
-      if (result && typeof result === 'object' && 'stdout' in result) {
-        url = result.stdout.toString().trim();
-      } else if (typeof result === 'string') {
-        url = result.trim();
-      } else {
-        throw new Error("Could not get remote URL");
-      }
-      
-      // Parse GitHub URL (supports both HTTPS and SSH formats)
-      let match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-      if (!match) {
-        throw new Error("Could not parse GitHub repository URL");
-      }
-      
-      const [, owner, repo] = match;
-      return { owner, repo };
-    } catch (error) {
-      // Fallback for test environments or when git is not available
-      if (process.env.NODE_ENV === 'test') {
-        return { owner: 'test', repo: 'repo' };
-      }
-      throw new Error(`Failed to determine repository info: ${error}`);
-    }
-  }
-
-  private async ensureDirectoryExists(dirPath: string): Promise<void> {
-    try {
-      await Bun.write(path.join(dirPath, ".keep"), "");
-    } catch (error) {
-      throw new Error(`Failed to create directory ${dirPath}: ${error}`);
-    }
-  }
+  ) {}
 
   async ensurePrerequisites(): Promise<void> {
     // Check if we're in a git repository
@@ -96,203 +44,255 @@ export class StackManager {
     if (!(await this.github.isAuthenticated())) {
       throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' to authenticate.");
     }
-
-    // Always sync with GitHub to ensure state is current
-    await this.syncWithGitHub();
   }
 
-  async syncWithGitHub(): Promise<void> {
-    const state = await this.loadState();
+  /**
+   * Discover current stack state from GitHub by finding open PRs
+   * and building the topological order from base->head chains.
+   */
+  async getCurrentStack(): Promise<StackState> {
+    startGroup("Discovering Stack from GitHub", "github");
     
-    if (state.pullRequests.length === 0) {
-      return; // Nothing to sync
-    }
-
-    startGroup("Syncing with GitHub", "github");
-    
-    const config = await this.config.getAll();
-    const activePRs: number[] = [];
-    const activeBranches: string[] = [];
-    const mergedPRs: number[] = [];
-    const needsRebase: { prNumber: number, branchName: string, correctBase: string }[] = [];
-    
-    logProgress("Checking PR status and bases...");
-    
-    // Check each PR's current status and base on GitHub
-    for (let i = 0; i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const branchName = state.branches[i];
-      
-      try {
-        const status = await this.github.getPullRequestStatus(prNumber);
-        
-        if (status === "open") {
-          // PR is still active, check if its base is correct
-          const prDetails = await this.github.getPullRequestByNumber(prNumber);
-          const expectedBase = i === 0 ? config.defaultBranch : state.branches[i - 1];
-          
-          logInfo(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`, 1);
-          
-          if (prDetails && prDetails.base !== expectedBase) {
-            // Check if the current base branch exists or was merged/deleted
-            const baseExists = await this.branchExistsOnGitHub(prDetails.base);
-            logInfo(`Base branch "${prDetails.base}" exists: ${baseExists}`, 1);
-            if (!baseExists || prDetails.base !== expectedBase) {
-              logInfo(`Adding PR #${prNumber} to rebase queue`, 1);
-              needsRebase.push({ prNumber, branchName, correctBase: expectedBase });
-            }
-          }
-          
-          activePRs.push(prNumber);
-          activeBranches.push(branchName);
-        } else if (status === "merged") {
-          // Track merged PRs for automatic rebasing
-          mergedPRs.push(prNumber);
-        }
-        // If status is "closed" (not merged), just remove from tracking
-      } catch (error) {
-        // If we can't check the PR status, assume it's gone
-        logWarning(`Could not check status of PR #${prNumber}, removing from tracking`, 1);
-      }
-    }
-    
-    // If we have merged PRs and remaining active PRs, automatically fix bases
-    if (mergedPRs.length > 0 && activePRs.length > 0) {
-      await this.autoRebaseAfterMerges(activePRs, activeBranches);
-    }
-    
-    // Fix any PRs that have incorrect bases
-    if (needsRebase.length > 0) {
-      await this.fixIncorrectBases(needsRebase);
-    }
-    
-    // Update state with only active PRs
-    const syncedState: StackState = {
-      ...state,
-      pullRequests: activePRs,
-      branches: activeBranches,
-      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
-    };
-    
-    // Save the synced state
-    await this.saveState(syncedState);
-    
-    logSuccess("GitHub sync completed");
-    endGroup();
-  }
-
-  private async branchExistsOnGitHub(branchName: string): Promise<boolean> {
-    try {
-      // Check if the branch exists on the remote
-      await Bun.$`gh api repos/:owner/:repo/branches/${branchName}`.quiet();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async fixIncorrectBases(needsRebase: { prNumber: number, branchName: string, correctBase: string }[]): Promise<void> {
-    startGroup(`Fixing Incorrect Bases (${needsRebase.length} PRs)`, "github");
-    
-    for (const { prNumber, branchName, correctBase } of needsRebase) {
-      try {
-        logProgress(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`, 1);
-        await this.github.updatePullRequestBase(prNumber, correctBase);
-        logSuccess(`Updated PR #${prNumber} base`, 1);
-      } catch (error) {
-        logWarning(`Could not update base for PR #${prNumber}: ${error}`, 1);
-      }
-    }
-    
-    endGroup();
-  }
-
-  private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
-    const config = await this.config.getAll();
-    console.log(`Auto-rebasing ${activePRs.length} PRs after merge...`);
-    
-    // Update base branches for remaining PRs
-    for (let i = 0; i < activePRs.length; i++) {
-      const prNumber = activePRs[i];
-      const newBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
-      
-      try {
-        console.log(`Updating PR #${prNumber} base to ${newBase}`);
-        await this.github.updatePullRequestBase(prNumber, newBase);
-      } catch (error) {
-        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
-      }
-    }
-  }
-
-  async loadState(): Promise<StackState> {
-    try {
-      const stateFilePath = await this.getStateFilePath();
-      const file = Bun.file(stateFilePath);
-      if (!(await file.exists())) {
-        return { branches: [], pullRequests: [] };
-      }
-      
-      const content = await file.text();
-      const state = JSON.parse(content);
-      // Ensure backward compatibility with existing state files
-      return { branches: [], pullRequests: [], ...state };
-    } catch {
-      return { branches: [], pullRequests: [] };
-    }
-  }
-
-  async saveState(state: StackState): Promise<void> {
-    try {
-      const stateFilePath = await this.getStateFilePath();
-      await Bun.write(stateFilePath, JSON.stringify(state, null, 2));
-    } catch (error) {
-      throw new Error(`Failed to save state: ${error}`);
-    }
-  }
-
-  async mergePullRequest(
-    prNumber?: number,
-    mergeMethod: "squash" | "merge" | "rebase" = "squash",
-    deleteBranch: boolean = true
-  ): Promise<void> {
-    await this.ensurePrerequisites();
-    
-    // If no PR number provided, find the top PR in the stack
-    if (!prNumber) {
-      const state = await this.loadState();
-      if (state.pullRequests.length === 0) {
-        throw new Error("No PRs found in current stack");
-      }
-      prNumber = state.pullRequests[state.pullRequests.length - 1];
-    }
-    
-    console.log(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
-    
-    // Merge the PR
-    await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
-    
-    console.log(`✅ Successfully merged PR #${prNumber}`);
-    
-    // Auto-pull latest changes to keep local main up to date
-    console.log("🔄 Updating local main with latest changes...");
     try {
       const config = await this.config.getAll();
-      console.log("  🔄 Fetching from remote...");
-      console.log("  🔄 Rebasing local changes...");
-      await this.git.pullLatestChanges(config.defaultBranch);
-      console.log("  ✅ Local main is now up to date");
+      logProgress("Fetching open PRs...");
+      
+      // Get all open PRs authored by current user
+      const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+      const allPRs = JSON.parse(result) as Array<{
+        number: number;
+        title: string;
+        url: string;
+        headRefName: string;
+        baseRefName: string;
+      }>;
+      
+      // Filter PRs by user prefix to identify stack PRs
+      const stackPRs = allPRs.filter(pr => 
+        pr.headRefName.startsWith(config.userPrefix + "/")
+      );
+      
+      logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
+      
+      if (stackPRs.length === 0) {
+        endGroup();
+        return { prs: [], totalCommits: 0 };
+      }
+      
+      logProgress("Building stack order from base chains...");
+      
+      // Build topological order by following base->head chains
+      const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+      
+      logProgress("Validating and auto-fixing broken chains...");
+      
+      // Auto-fix any broken base chains
+      const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+      
+      const stackState: StackState = {
+        prs: fixedPRs.map(pr => ({
+          number: pr.number,
+          branch: pr.headRefName,
+          title: pr.title,
+          url: pr.url,
+          base: pr.baseRefName,
+          head: pr.headRefName
+        })),
+        totalCommits: 0, // Will be calculated when needed
+        lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+      };
+      
+      logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
+      
+      // Log the stack order
+      if (fixedPRs.length > 0) {
+        const stackOrder = fixedPRs.map((pr, i) => 
+          `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`
+        );
+        output.logList(stackOrder, "Stack Order:", "info");
+      }
+      
+      endGroup();
+      return stackState;
+      
     } catch (error) {
-      console.warn(`  ⚠️ Warning: Could not update local ${config.defaultBranch}: ${error}`);
+      endGroup();
+      throw new Error(`Failed to discover stack from GitHub: ${error}`);
     }
-    
-    // Sync state and update remaining PRs (this triggers auto-rebase)
-    console.log("Updating stack state...");
-    await this.syncWithGitHub();
-    
-    console.log("Stack state updated successfully!");
   }
 
+  /**
+   * Get new commits that aren't in origin/main or existing stack branches.
+   * Uses git ranges to find commits ready to be pushed.
+   */
+  async getNewCommits(): Promise<GitCommit[]> {
+    startGroup("Finding New Commits", "git");
+    
+    try {
+      const config = await this.config.getAll();
+      const currentStack = await this.getCurrentStack();
+      
+      logProgress("Determining base reference...");
+      
+      // Build exclusion list: origin/main + all existing stack branches
+      const exclusions = [`origin/${config.defaultBranch}`];
+      
+      // Add existing stack branches to exclusions
+      for (const pr of currentStack.prs) {
+        exclusions.push(`origin/${pr.branch}`);
+      }
+      
+      logInfo(`Excluding commits from: ${exclusions.join(", ")}`, 1);
+      
+      // Find commits that are on HEAD but not in any of the excluded refs
+      logProgress("Scanning for new commits...");
+      
+      let newCommits: GitCommit[] = [];
+      
+      // Try different strategies to find new commits
+      for (const exclusion of exclusions) {
+        try {
+          // Check if this ref exists
+          await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
+          
+          // Get commits since this ref
+          const commitsFromThisRef = await this.git.getCommitsSince(exclusion);
+          
+          if (commitsFromThisRef.length > 0) {
+            // Use the ref that gives us the smallest set of new commits
+            // (most recent starting point)
+            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+              newCommits = commitsFromThisRef;
+              logInfo(`Using ${exclusion} as base (${commitsFromThisRef.length} new commits)`, 1);
+            }
+          }
+        } catch {
+          // This ref doesn't exist, skip it
+          continue;
+        }
+      }
+      
+      // If no exclusions worked, fall back to just origin/main
+      if (newCommits.length === 0) {
+        try {
+          newCommits = await this.git.getCommitsSince(`origin/${config.defaultBranch}`);
+          logInfo(`Falling back to origin/${config.defaultBranch}`, 1);
+        } catch {
+          // Last resort: get commits from a reasonable base
+          try {
+            const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+            const baseRef = rootCommit.trim().split('\n')[0];
+            newCommits = await this.git.getCommitsSince(baseRef);
+            logInfo(`Using root commit as base`, 1);
+          } catch {
+            newCommits = [];
+          }
+        }
+      }
+      
+      logSuccess(`Found ${newCommits.length} new commits`);
+      
+      if (newCommits.length > 0) {
+        const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
+        output.logList(commitList, "New commits:", "info");
+      }
+      
+      endGroup();
+      return newCommits;
+      
+    } catch (error) {
+      endGroup();
+      throw new Error(`Failed to find new commits: ${error}`);
+    }
+  }
+
+  /**
+   * Build topological order from GitHub PRs by following base->head chains.
+   */
+  private buildStackOrder(
+    prs: Array<{ number: number; title: string; url: string; headRefName: string; baseRefName: string }>,
+    defaultBranch: string
+  ): Array<{ number: number; title: string; url: string; headRefName: string; baseRefName: string }> {
+    const orderedPRs: Array<{ number: number; title: string; url: string; headRefName: string; baseRefName: string }> = [];
+    const remaining = [...prs];
+    
+    // Start with PRs that are based on the default branch
+    let currentBase = defaultBranch;
+    
+    while (remaining.length > 0) {
+      const nextPR = remaining.find(pr => pr.baseRefName === currentBase);
+      
+      if (!nextPR) {
+        // No PR found with current base, look for any remaining PR and warn about broken chain
+        if (remaining.length > 0) {
+          logWarning(`Broken chain detected: ${remaining.length} PRs don't follow proper base chain`, 1);
+          // Add remaining PRs in their current order (will be fixed by auto-fix)
+          orderedPRs.push(...remaining);
+        }
+        break;
+      }
+      
+      // Add this PR to the ordered list and remove from remaining
+      orderedPRs.push(nextPR);
+      remaining.splice(remaining.indexOf(nextPR), 1);
+      
+      // Next PR should be based on this PR's head
+      currentBase = nextPR.headRefName;
+    }
+    
+    return orderedPRs;
+  }
+
+  /**
+   * Auto-fix broken base chains by updating PR bases to create proper stack order.
+   */
+  private async autoFixBrokenChains(
+    prs: Array<{ number: number; title: string; url: string; headRefName: string; baseRefName: string }>,
+    defaultBranch: string
+  ): Promise<Array<{ number: number; title: string; url: string; headRefName: string; baseRefName: string }>> {
+    const fixedPRs = [...prs];
+    const needsFixing: Array<{ prNumber: number; currentBase: string; correctBase: string }> = [];
+    
+    // Check each PR's base and identify fixes needed
+    for (let i = 0; i < fixedPRs.length; i++) {
+      const pr = fixedPRs[i];
+      const expectedBase = i === 0 ? defaultBranch : fixedPRs[i - 1].headRefName;
+      
+      if (pr.baseRefName !== expectedBase) {
+        needsFixing.push({
+          prNumber: pr.number,
+          currentBase: pr.baseRefName,
+          correctBase: expectedBase
+        });
+        
+        // Update our local copy for consistent ordering
+        fixedPRs[i] = { ...pr, baseRefName: expectedBase };
+      }
+    }
+    
+    // Apply fixes to GitHub
+    if (needsFixing.length > 0) {
+      startGroup(`Auto-fixing ${needsFixing.length} broken base chains`, "github");
+      
+      for (const fix of needsFixing) {
+        try {
+          logProgress(`Updating PR #${fix.prNumber}: ${fix.currentBase} -> ${fix.correctBase}`, 1);
+          await this.github.updatePullRequestBase(fix.prNumber, fix.correctBase);
+          logSuccess(`Fixed PR #${fix.prNumber} base`, 1);
+        } catch (error) {
+          logWarning(`Could not fix PR #${fix.prNumber} base: ${error}`, 1);
+        }
+      }
+      
+      endGroup();
+    }
+    
+    return fixedPRs;
+  }
+
+  /**
+   * Push new commits as a stacked PR.
+   */
   async pushStack(autoPublish: boolean = false, force: boolean = false): Promise<void> {
     await this.ensurePrerequisites();
 
@@ -330,32 +330,8 @@ export class StackManager {
       endGroup();
     }
 
-    // Load previous state
-    const state = await this.loadState();
-    
-    // Get commits since last processed or since origin/main
-    let baseRef: string;
-    if (state.lastProcessedCommit) {
-      baseRef = state.lastProcessedCommit;
-    } else {
-      // For first run, check if origin branch exists, otherwise use a reasonable base
-      try {
-        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`.quiet();
-        baseRef = `origin/${config.defaultBranch}`;
-      } catch {
-        // Origin branch doesn't exist, get all commits on current branch
-        // Find the root commit or use a reasonable base
-        try {
-          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim().split('\n')[0]; // Take first root commit if multiple exist
-        } catch {
-          // If all else fails, just get the last few commits
-          baseRef = `HEAD~10`; // Arbitrary limit to avoid too many commits
-        }
-      }
-    }
-    
-    const newCommits = await this.git.getCommitsSince(baseRef);
+    // Get new commits using the GitHub-first approach
+    const newCommits = await this.getNewCommits();
     
     if (newCommits.length === 0) {
       logInfo("No new commits to process.");
@@ -416,14 +392,16 @@ export class StackManager {
     const prTitle = this.github.generatePRTitle(newCommits);
     const prBody = this.github.generatePRBody(newCommits);
     
-    // Use the last branch as base for stacking, or default branch for first PR
-    const baseBranch = state.lastBranch || config.defaultBranch;
+    // Get current stack to determine base branch
+    const currentStack = await this.getCurrentStack();
+    const baseBranch = currentStack.lastBranch || config.defaultBranch;
     
     logProgress(`Creating PR: "${prTitle}"`);
     logInfo(`Base branch: ${baseBranch}`, 1);
     
     const isDraft = autoPublish ? false : config.draftPRs;
     logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
+    
     const pr = await this.github.createPullRequest(
       prTitle,
       prBody,
@@ -438,18 +416,7 @@ export class StackManager {
     startGroup("Finalizing", "stack");
     logProgress("Switching back to main branch...");
     await this.git.checkoutBranch(config.defaultBranch);
-
-    logProgress("Updating stack state...");
-    const newState: StackState = {
-      lastProcessedCommit: newCommits[0].hash, // Most recent commit
-      branches: [...state.branches, branchName],
-      pullRequests: [...state.pullRequests, pr.number],
-      lastBranch: branchName // Track this branch for next stack
-    };
-    
-    await this.saveState(newState);
-    
-    logSuccess("Stack state updated");
+    logSuccess("Returned to main branch");
     endGroup();
 
     logSummary("Stack Created Successfully", [
@@ -461,33 +428,16 @@ export class StackManager {
     logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.`);
   }
 
+  /**
+   * Get current status using GitHub as source of truth.
+   */
   async getStatus(): Promise<string> {
     await this.ensurePrerequisites();
 
     const config = await this.config.getAll();
     const gitStatus = await this.git.getStatus();
-    const state = await this.loadState();
-
-    let baseRef: string;
-    if (state.lastProcessedCommit && state.pullRequests.length > 0) {
-      // Only use lastProcessedCommit if we have active PRs
-      baseRef = state.lastProcessedCommit;
-    } else {
-      // If no active PRs, compare against origin/main
-      try {
-        await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`.quiet();
-        baseRef = `origin/${config.defaultBranch}`;
-      } catch {
-        try {
-          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim().split('\n')[0]; // Take first root commit if multiple exist
-        } catch {
-          baseRef = `HEAD~10`;
-        }
-      }
-    }
-    
-    const newCommits = await this.git.getCommitsSince(baseRef);
+    const currentStack = await this.getCurrentStack();
+    const newCommits = await this.getNewCommits();
 
     let statusMessage = `
 Current Status:
@@ -496,63 +446,93 @@ Current Status:
 - Ahead: ${gitStatus.ahead} commits
 - Behind: ${gitStatus.behind} commits
 
-Stack Status:
-- Active branches: ${state.branches.length}
-- Active PRs: ${state.pullRequests.length}
+Stack Status (from GitHub):
+- Active PRs: ${currentStack.prs.length}
 - New commits ready: ${newCommits.length}
 `;
 
-    if (state.branches.length > 0) {
-      statusMessage += `\nActive Branches:\n${state.branches.map(b => `  - ${b}`).join('\n')}`;
-    }
-
-    if (state.pullRequests.length > 0) {
-      statusMessage += `\nActive PRs:\n${state.pullRequests.map(pr => `  - #${pr}`).join('\n')}`;
+    if (currentStack.prs.length > 0) {
+      statusMessage += `\nActive PRs (in stack order):\n${currentStack.prs.map((pr, i) => 
+        `  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`
+      ).join('\n')}`;
     }
 
     if (newCommits.length > 0) {
-      statusMessage += `\nNew Commits (ready to push):\n${newCommits.map(c => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join('\n')}`;
+      statusMessage += `\nNew Commits (ready to push):\n${newCommits.map(c => 
+        `  - ${c.hash.slice(0, 7)}: ${c.message}`
+      ).join('\n')}`;
     }
 
     return statusMessage;
   }
 
-  async rebaseStack(mergedPrNumber: number): Promise<void> {
+  /**
+   * Merge a PR and auto-update the stack.
+   */
+  async mergePullRequest(
+    prNumber?: number,
+    mergeMethod: "squash" | "merge" | "rebase" = "squash",
+    deleteBranch: boolean = true
+  ): Promise<void> {
     await this.ensurePrerequisites();
-
-    const state = await this.loadState();
     
-    // Find the index of the merged PR
-    const mergedPrIndex = state.pullRequests.indexOf(mergedPrNumber);
-    if (mergedPrIndex === -1) {
-      throw new Error(`PR #${mergedPrNumber} not found in active stack`);
+    // If no PR number provided, find the top PR in the stack
+    if (!prNumber) {
+      const currentStack = await this.getCurrentStack();
+      if (currentStack.prs.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = currentStack.prs[currentStack.prs.length - 1].number;
     }
-
-    // Get the branch that was merged
-    const mergedBranch = state.branches[mergedPrIndex];
     
-    // Update base branches for all PRs that come after the merged one
-    for (let i = mergedPrIndex + 1; i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const newBase = i === mergedPrIndex + 1 ? "main" : state.branches[i - 1];
-      
-      console.log(`Updating PR #${prNumber} base to ${newBase}`);
-      await this.github.updatePullRequestBase(prNumber, newBase);
+    logInfo(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
+    
+    // Merge the PR
+    await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    
+    logSuccess(`✅ Successfully merged PR #${prNumber}`);
+    
+    // Auto-pull latest changes to keep local main up to date
+    logInfo("🔄 Updating local main with latest changes...");
+    try {
+      const config = await this.config.getAll();
+      logInfo("  🔄 Fetching from remote...");
+      logInfo("  🔄 Rebasing local changes...");
+      await this.git.pullLatestChanges(config.defaultBranch);
+      logInfo("  ✅ Local main is now up to date");
+    } catch (error) {
+      const config = await this.config.getAll();
+      logWarning(`  ⚠️ Warning: Could not update local ${config.defaultBranch}: ${error}`);
     }
-
-    // Remove the merged PR and branch from state
-    const newState: StackState = {
-      ...state,
-      branches: state.branches.filter((_, index) => index !== mergedPrIndex),
-      pullRequests: state.pullRequests.filter((_, index) => index !== mergedPrIndex),
-      lastBranch: mergedPrIndex === 0 ? undefined : state.branches[mergedPrIndex - 1]
-    };
-
-    await this.saveState(newState);
-
-    console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
+    
+    // Re-discover stack from GitHub (this will auto-fix remaining PRs)
+    logInfo("Updating stack state from GitHub...");
+    await this.getCurrentStack(); // This triggers auto-fix of broken chains
+    
+    logInfo("Stack state updated successfully!");
   }
 
+  /**
+   * Publish a draft PR.
+   */
+  async publishPullRequest(prNumber?: number): Promise<void> {
+    await this.ensurePrerequisites();
+    
+    // If no PR number provided, find the top PR in the stack
+    if (!prNumber) {
+      const currentStack = await this.getCurrentStack();
+      if (currentStack.prs.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = currentStack.prs[currentStack.prs.length - 1].number;
+    }
+    
+    await this.github.publishPullRequest(prNumber);
+  }
+
+  /**
+   * Validate sync status with remote.
+   */
   private async validateSyncStatus(defaultBranch: string): Promise<void> {
     startGroup("Validating Sync Status", "git");
     
@@ -619,26 +599,5 @@ Stack Status:
       }
       throw new Error(`Failed to validate sync status: ${error}`);
     }
-  }
-
-  async publishPullRequest(prNumber?: number): Promise<void> {
-    await this.ensurePrerequisites();
-    
-    // If no PR number provided, find the top PR in the stack
-    if (!prNumber) {
-      const state = await this.loadState();
-      if (state.pullRequests.length === 0) {
-        throw new Error("No PRs found in current stack");
-      }
-      prNumber = state.pullRequests[state.pullRequests.length - 1];
-    }
-    
-    // Verify the PR is in our stack (for safety)
-    const state = await this.loadState();
-    if (!state.pullRequests.includes(prNumber)) {
-      console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
-    }
-    
-    await this.github.publishPullRequest(prNumber);
   }
 }
