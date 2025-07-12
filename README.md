@@ -106,6 +106,8 @@ rungs merge 123 --rebase     # Rebase merge
 
 > **🎯 Smart Stack Management**: Automatically updates dependent PRs before merging to prevent GitHub auto-closure. Your stack stays intact with correct diffs!
 
+> **✅ Fix Verified**: The built binary now includes the stacking bug fix.
+
 ### `rungs config`
 ⚙️ Manage configuration
 ```bash
