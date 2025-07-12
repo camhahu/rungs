@@ -144,7 +144,9 @@ The project uses:
 5. **Document findings** - Note any issues or improvements discovered through usage
 
 ### Commit Guidelines for Dogfooding
-- Each commit must build successfully (`bun run build`)
+- **NEVER commit when tests are failing** - All tests must pass before any commit
+- Each commit must build successfully (`bun run build`) 
+- Each commit must pass all tests (`bun test`)
 - Each commit should include updated binary if code changed
 - Each commit should be a complete feature/fix that could be merged independently
 - Use descriptive commit messages that will become good PR titles
@@ -154,6 +156,7 @@ The project uses:
 # Make a small, complete improvement
 git commit -m "Add better error message for missing config"
 bun run build  # Ensure it works
+bun test       # Ensure all tests pass
 
 # Create PR
 rungs push
@@ -162,6 +165,7 @@ rungs status  # Verify state
 # Make another independent improvement  
 git commit -m "Improve help text formatting"
 bun run build
+bun test       # Ensure all tests pass
 
 # Create second PR (stacked)
 rungs push
