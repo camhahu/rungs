@@ -527,6 +527,21 @@ Stack Status (from GitHub):
 
     logSuccess(`✅ Successfully merged PR #${prNumber}`);
 
+    // CRITICAL: After squash merge, restack dependent branches to remove duplicate commits
+    if (prBeingMerged && deleteBranch && mergeMethod === "squash") {
+      const dependentPRs = currentStack.prs.filter(pr =>
+        pr.base === prBeingMerged.head && pr.number !== prNumber
+      );
+
+      if (dependentPRs.length > 0) {
+        const config = await this.config.getAll();
+        const prBeingMergedIndex = currentStack.prs.findIndex(pr => pr.number === prNumber);
+        const newBase = prBeingMergedIndex > 0 ? currentStack.prs[prBeingMergedIndex - 1].head : config.defaultBranch;
+        
+        await this.restackDependents(dependentPRs, prBeingMerged.head, newBase);
+      }
+    }
+
     // Auto-pull latest changes to keep local main up to date
     logInfo("🔄 Updating local main with latest changes...");
     try {
@@ -545,6 +560,66 @@ Stack Status (from GitHub):
     await this.getCurrentStack(); // This triggers auto-fix of broken chains
 
     logInfo("Stack state updated successfully!");
+  }
+
+  /**
+   * Restack dependent branches after a squash merge to remove duplicate commits.
+   * This method rebases dependent PRs to remove commits that were squashed.
+   */
+  private async restackDependents(
+    dependentPRs: StackPR[],
+    oldBase: string,
+    newBase: string
+  ): Promise<void> {
+    if (dependentPRs.length === 0) {
+      return;
+    }
+
+    startGroup(`Restacking ${dependentPRs.length} dependent branches`, "git");
+    logInfo(`Rebasing dependent PRs to remove squashed commits`);
+
+    const originalBranch = await this.git.getCurrentBranch();
+
+    try {
+      for (const pr of dependentPRs) {
+        logProgress(`Restacking PR #${pr.number} (${pr.head})`, 1);
+        
+        try {
+          // Checkout the dependent branch
+          await this.git.checkoutBranch(pr.head);
+          
+          // Fetch latest state of both old and new bases
+          await this.git.fetchBranch(newBase);
+          await this.git.fetchBranch(oldBase);
+          
+          // Rebase --onto to remove duplicate commits
+          await this.git.rebaseOntoTarget(`origin/${newBase}`, `origin/${oldBase}`);
+          
+          // Force push the rebased branch
+          await this.git.pushForceWithLease(pr.head);
+          
+          logSuccess(`Restacked PR #${pr.number}`, 1);
+        } catch (error) {
+          logWarning(`Failed to restack PR #${pr.number}: ${error}`, 1);
+          
+          // Try to abort any ongoing rebase
+          try {
+            await Bun.$`git rebase --abort`.quiet();
+          } catch {
+            // Ignore abort errors
+          }
+        }
+      }
+    } finally {
+      // Return to original branch
+      try {
+        await this.git.checkoutBranch(originalBranch);
+      } catch (error) {
+        logWarning(`Could not return to original branch ${originalBranch}: ${error}`);
+      }
+    }
+
+    endGroup();
   }
 
   /**

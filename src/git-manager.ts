@@ -326,4 +326,34 @@ export class GitManager {
       throw new Error(`Failed to pull latest changes for ${branch}: ${error}`);
     }
   }
+
+  async fetchBranch(branch: string): Promise<void> {
+    try {
+      await Bun.$`git fetch origin ${branch}:${branch}`;
+    } catch (error) {
+      throw new Error(`Failed to fetch branch ${branch}: ${error}`);
+    }
+  }
+
+  async pushForceWithLease(branch: string): Promise<void> {
+    try {
+      await Bun.$`git push origin ${branch} --force-with-lease`;
+    } catch (error) {
+      throw new Error(`Failed to force push branch ${branch}: ${error}`);
+    }
+  }
+
+  async rebaseOntoTarget(newBase: string, oldBase: string): Promise<void> {
+    try {
+      await Bun.$`git rebase --onto ${newBase} ${oldBase}`;
+    } catch (error) {
+      // If rebase fails, we should abort it
+      try {
+        await Bun.$`git rebase --abort`;
+      } catch {
+        // Ignore abort errors
+      }
+      throw new Error(`Failed to rebase onto ${newBase} from ${oldBase}. Please resolve conflicts manually.`);
+    }
+  }
 }
