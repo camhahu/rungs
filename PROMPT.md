@@ -9,4 +9,3 @@ You find your work in @docs/ISSUES.md
 - During your development, you might find another bug or issue. Update the ISSUES.md IMMEDIATELY with a subagent.
 
 After you complete your work, build and run the tests. Then commit and use rungs to create a PR.
-
