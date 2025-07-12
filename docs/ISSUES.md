@@ -36,6 +36,12 @@ This document tracks all work items needed to implement the rungs CLI project.
   - Stack relationship display
   - Verbose output formatting
 
+- [x] **rungs rebase Command** (In Progress)
+  - Stack maintenance after PR merges
+  - Base branch updates for dependent PRs
+  - State cleanup for merged PRs
+  - Dry-run mode for safety
+
 - [ ] **rungs config Command**
   - Configuration key-value management
   - Configuration validation

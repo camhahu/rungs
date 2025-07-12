@@ -19,6 +19,10 @@ const COMMANDS = {
   help: "Show help information"
 } as const;
 
+const HIDDEN_COMMANDS = {
+  rebase: "Rebase stack when PRs are merged"
+} as const;
+
 type Command = keyof typeof COMMANDS;
 
 async function main() {
@@ -59,6 +63,9 @@ async function main() {
       case "status":
         await handleStatus(stack, options);
         break;
+      case "rebase":
+        await handleRebase(stack, args, options);
+        break;
       case "config":
         await handleConfig(config, args, options);
         break;
@@ -76,7 +83,7 @@ async function main() {
 }
 
 function isValidCommand(cmd: string): cmd is Command {
-  return cmd in COMMANDS;
+  return cmd in COMMANDS || cmd in HIDDEN_COMMANDS;
 }
 
 function showHelp() {
@@ -112,6 +119,20 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
   console.log("Checking stack status...");
   const status = await stack.getStatus();
   console.log(status);
+}
+
+async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
+  const [prNumber] = args;
+  
+  if (!prNumber) {
+    console.error("Usage: rungs rebase <pr-number>");
+    console.error("Rebase the stack after PR <pr-number> has been merged.");
+    process.exit(1);
+  }
+  
+  console.log(`Rebasing stack after PR #${prNumber} merge...`);
+  await stack.rebaseStack(parseInt(prNumber));
+  console.log("Stack rebased successfully!");
 }
 
 async function handleConfig(config: ConfigManager, args: string[], options: CliOptions) {

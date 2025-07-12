@@ -6,6 +6,7 @@ interface StackState {
   lastProcessedCommit?: string;
   branches: string[];
   pullRequests: number[];
+  lastBranch?: string; // Track the previous branch for stacking
 }
 
 export class StackManager {
@@ -33,6 +34,74 @@ export class StackManager {
     if (!(await this.github.isAuthenticated())) {
       throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' first.");
     }
+
+    // Always sync with GitHub to ensure state is current
+    await this.syncWithGitHub();
+  }
+
+  async syncWithGitHub(): Promise<void> {
+    const state = await this.loadState();
+    
+    if (state.pullRequests.length === 0) {
+      return; // Nothing to sync
+    }
+
+    const activePRs: number[] = [];
+    const activeBranches: string[] = [];
+    const mergedPRs: number[] = [];
+    
+    // Check each PR's current status on GitHub
+    for (let i = 0; i < state.pullRequests.length; i++) {
+      const prNumber = state.pullRequests[i];
+      const branchName = state.branches[i];
+      
+      try {
+        const status = await this.github.getPullRequestStatus(prNumber);
+        
+        if (status === "open") {
+          // PR is still active, keep it
+          activePRs.push(prNumber);
+          activeBranches.push(branchName);
+        } else if (status === "merged") {
+          // Track merged PRs for automatic rebasing
+          mergedPRs.push(prNumber);
+        }
+        // If status is "closed" (not merged), just remove from tracking
+      } catch (error) {
+        // If we can't check the PR status, assume it's gone
+        console.warn(`Warning: Could not check status of PR #${prNumber}, removing from tracking`);
+      }
+    }
+    
+    // If we have merged PRs and remaining active PRs, automatically rebase
+    if (mergedPRs.length > 0 && activePRs.length > 0) {
+      await this.autoRebaseAfterMerges(activePRs, activeBranches);
+    }
+    
+    // Update state with only active PRs
+    const syncedState: StackState = {
+      ...state,
+      pullRequests: activePRs,
+      branches: activeBranches,
+      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
+    };
+    
+    // Save the synced state
+    await this.saveState(syncedState);
+  }
+
+  private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
+    // Update base branches for remaining PRs
+    for (let i = 0; i < activePRs.length; i++) {
+      const prNumber = activePRs[i];
+      const newBase = i === 0 ? "main" : activeBranches[i - 1];
+      
+      try {
+        await this.github.updatePullRequestBase(prNumber, newBase);
+      } catch (error) {
+        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
+      }
+    }
   }
 
   async loadState(): Promise<StackState> {
@@ -43,7 +112,9 @@ export class StackManager {
       }
       
       const content = await file.text();
-      return JSON.parse(content);
+      const state = JSON.parse(content);
+      // Ensure backward compatibility with existing state files
+      return { branches: [], pullRequests: [], ...state };
     } catch {
       return { branches: [], pullRequests: [] };
     }
@@ -137,11 +208,14 @@ export class StackManager {
     const prTitle = this.github.generatePRTitle(newCommits);
     const prBody = this.github.generatePRBody(newCommits);
     
+    // Use the last branch as base for stacking, or default branch for first PR
+    const baseBranch = state.lastBranch || config.defaultBranch;
+    
     const pr = await this.github.createPullRequest(
       prTitle,
       prBody,
       branchName,
-      config.defaultBranch,
+      baseBranch,
       config.draftPRs
     );
 
@@ -154,7 +228,8 @@ export class StackManager {
     const newState: StackState = {
       lastProcessedCommit: newCommits[0].hash, // Most recent commit
       branches: [...state.branches, branchName],
-      pullRequests: [...state.pullRequests, pr.number]
+      pullRequests: [...state.pullRequests, pr.number],
+      lastBranch: branchName // Track this branch for next stack
     };
     
     await this.saveState(newState);
@@ -221,5 +296,41 @@ Stack Status:
     }
 
     return statusMessage;
+  }
+
+  async rebaseStack(mergedPrNumber: number): Promise<void> {
+    await this.ensurePrerequisites();
+
+    const state = await this.loadState();
+    
+    // Find the index of the merged PR
+    const mergedPrIndex = state.pullRequests.indexOf(mergedPrNumber);
+    if (mergedPrIndex === -1) {
+      throw new Error(`PR #${mergedPrNumber} not found in active stack`);
+    }
+
+    // Get the branch that was merged
+    const mergedBranch = state.branches[mergedPrIndex];
+    
+    // Update base branches for all PRs that come after the merged one
+    for (let i = mergedPrIndex + 1; i < state.pullRequests.length; i++) {
+      const prNumber = state.pullRequests[i];
+      const newBase = i === mergedPrIndex + 1 ? "main" : state.branches[i - 1];
+      
+      console.log(`Updating PR #${prNumber} base to ${newBase}`);
+      await this.github.updatePullRequestBase(prNumber, newBase);
+    }
+
+    // Remove the merged PR and branch from state
+    const newState: StackState = {
+      ...state,
+      branches: state.branches.filter((_, index) => index !== mergedPrIndex),
+      pullRequests: state.pullRequests.filter((_, index) => index !== mergedPrIndex),
+      lastBranch: mergedPrIndex === 0 ? undefined : state.branches[mergedPrIndex - 1]
+    };
+
+    await this.saveState(newState);
+
+    console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
   }
 }

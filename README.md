@@ -87,6 +87,89 @@ rungs push                               # → PR #3 (E)
 
 **Result**: Three focused, reviewable PRs instead of one massive PR with 5 commits.
 
+## 🔄 Complete User Workflow
+
+Here's the full lifecycle of working with stacked diffs, including how to handle PR merges:
+
+### 1. Initial Development
+```bash
+# Start development on main
+git checkout main
+git pull origin main
+
+# Make incremental commits
+git commit -m "Add user authentication model"
+git commit -m "Add password hashing utility"
+rungs push                                    # → Creates PR #42
+
+git commit -m "Add login endpoint"
+git commit -m "Add JWT token generation"  
+rungs push                                    # → Creates PR #43
+
+git commit -m "Add login form component"
+rungs push                                    # → Creates PR #44
+```
+
+### 2. Review and Merge Process
+```bash
+# Check current stack status
+rungs status
+# Shows:
+# Active PRs: #42, #43, #44
+# Dependencies: #43 builds on #42, #44 builds on #43
+```
+
+### 3. When PRs Get Merged
+After PR #42 gets merged into main:
+
+```bash
+# Any rungs command automatically detects and handles merges
+rungs status
+
+# This automatically:
+# - Detects PR #42 was merged and removes it from tracking
+# - Updates PR #43 to base on main (instead of #42's branch)  
+# - Updates PR #44 to base on #43's branch
+# - Maintains clean commit history without any manual intervention
+```
+
+### 4. Continue Development
+```bash
+# After rebase, continue working
+git commit -m "Add password reset feature"
+rungs push                                    # → Creates PR #45
+
+rungs status
+# Now shows:
+# Active PRs: #43, #44, #45
+# Clean dependency chain maintained
+```
+
+### 5. Complete Feature Lifecycle
+```bash
+# As each PR gets reviewed and merged, rungs automatically handles cleanup:
+
+# PR #43 gets merged - next rungs command automatically updates bases
+rungs status
+# Now PR #44 bases on main, PR #45 bases on #44
+
+# PR #44 gets merged - automatic cleanup again
+rungs push  # Any command triggers sync
+# Now only PR #45 remains, bases on main
+
+# PR #45 gets merged
+rungs status
+# Shows: No active PRs, ready for next feature
+```
+
+### Key Benefits of This Workflow
+
+**🎯 Focused Reviews**: Each PR contains logically related changes  
+**🚀 Parallel Development**: Work on new features while others are in review  
+**🔧 Easy Maintenance**: Automatic stack cleanup when PRs are merged  
+**📈 Better Velocity**: Merge parts of features as they're ready  
+**🔄 Always Current**: Rungs automatically syncs with GitHub on every command
+
 ## 🛠️ Commands
 
 ### `rungs push`
@@ -105,11 +188,17 @@ rungs push --help            # Show push command options
 - Updates local state to track the new stack
 
 ### `rungs status`
-Shows current repository and stack status.
+Shows current repository and stack status with real-time GitHub sync.
 
 ```bash
 rungs status
 ```
+
+**Features:**
+- Automatically syncs with GitHub to show current PR status
+- Removes merged/closed PRs from tracking
+- Shows accurate count of active PRs and branches
+- Displays new commits ready to push
 
 **Example output:**
 ```
@@ -326,6 +415,53 @@ rungs push  # → PR #2: Database optimizations
 git commit -m "Update API documentation with performance notes"
 rungs push  # → PR #3: Documentation update
 ```
+
+### Example 3: Complete Stack Lifecycle with Automatic Cleanup
+
+```bash
+# Scenario: Feature development with seamless PR merges
+
+# Initial development
+git commit -m "Add payment model"
+git commit -m "Add payment validation"
+rungs push  # → PR #10: Payment foundation
+
+git commit -m "Add payment API endpoints"  
+git commit -m "Add error handling"
+rungs push  # → PR #11: Payment API (builds on PR #10)
+
+git commit -m "Add payment UI components"
+rungs push  # → PR #12: Payment UI (builds on PR #11)
+
+# Check stack status
+rungs status
+# Active PRs: #10, #11, #12
+# Dependencies: #11 → #10, #12 → #11
+
+# PR #10 gets approved and merged (on GitHub)
+# Next rungs command automatically detects and handles it
+rungs status
+# Automatically updates: #11 now bases on main, #12 bases on #11
+
+# Continue development while others are in review
+git commit -m "Add payment analytics"
+rungs push  # → PR #13: Analytics (builds on PR #12)
+
+# PR #11 gets merged (on GitHub)
+rungs push  # Any command triggers automatic cleanup
+# Automatically updates: #12 now bases on main, #13 bases on #12
+
+# Final state: Clean stack with no duplicate commits
+rungs status
+# Active PRs: #12, #13
+# All PRs have clean, focused commits
+```
+
+**Benefits:**
+- Clean commit history throughout the process
+- Zero manual intervention required for stack maintenance
+- Each PR remains focused and reviewable  
+- Team can merge PRs as they're ready without coordination
 
 ## 🛡️ Troubleshooting
 
