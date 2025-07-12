@@ -12,6 +12,8 @@ Break down large features into reviewable chunks! Create multiple independent pu
 - 📂 Git repository with GitHub remote
 
 ### Installation
+
+> **Note**: This section includes commit A changes for testing stacking workflow.
 ```bash
 git clone https://github.com/camhahu/rungs.git
 cd rungs
