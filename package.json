@@ -1,7 +1,7 @@
 {
   "name": "rungs",
   "version": "0.1.0",
-  "description": "CLI tool for managing stacked diffs with Git and GitHub",
+  "description": "CLI tool for managing stacked diffs with Git and GitHub - create focused PRs from sequential commits",
   "type": "module",
   "private": true,
   "bin": {
