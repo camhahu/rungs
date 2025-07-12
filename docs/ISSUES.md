@@ -10,6 +10,9 @@ BUGS:
   - rungs should bias for using state from the github server, not local state. Unless local state makes rungs noticably faster to the user. 
 - When I create 2 stacks on top of each other. They look good. When I merge the first stack, however, then run rungs status, the second stack PR updates to go into main (correct) but it shows the stack as having both Stack 1 and Stack 2's commits - thus the diff is not intuitive.
 
+Commit 1
+
+
 ## Configuration
 
 - [ ] **Configuration Options Implementation**
