@@ -38,6 +38,42 @@ test("example test", () => {
 });
 ```
 
+### Bug Fix Testing Strategy
+
+**CRITICAL**: Every bug fix must include a regression test that reproduces the original issue and verifies the fix.
+
+When fixing a bug:
+1. First write a test that reproduces the bug (it should fail)
+2. Fix the bug 
+3. Verify the test now passes
+4. Document the issue in tests with clear descriptions
+
+Test categories:
+- **Shell execution issues** - Test Bun shell command handling
+- **GitHub CLI compatibility** - Test different gh CLI versions/flags
+- **Git operations** - Test git command parsing and execution
+- **Edge cases** - Test empty states, special characters, error conditions
+
+## Documentation
+
+### README.md Maintenance
+The README.md is the primary user-facing documentation. It must be kept current and comprehensive.
+
+**Update README when:**
+- New commands or features are added
+- Configuration options change
+- Common user issues are discovered
+- Installation process changes
+- Examples become outdated
+
+See [docs/README-MAINTENANCE.md](docs/README-MAINTENANCE.md) for detailed guidelines.
+
+**Quality standards:**
+- All code examples must work as shown
+- Include realistic scenarios, not toy examples
+- Cover troubleshooting for actual user issues
+- Update configuration documentation when settings change
+
 ## Dependencies
 
 The project uses:
