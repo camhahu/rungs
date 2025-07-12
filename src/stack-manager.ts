@@ -159,15 +159,44 @@ export class StackManager {
   }
 
   private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
-    // Update base branches for remaining PRs
-    for (let i = 0; i < activePRs.length; i++) {
-      const prNumber = activePRs[i];
-      const newBase = i === 0 ? "main" : activeBranches[i - 1];
+    const config = await this.config.getAll();
+    const currentBranch = await this.git.getCurrentBranch();
+    
+    try {
+      // Fetch latest changes from remote
+      await this.git.fetchOrigin();
       
+      // Rebase each remaining branch onto its new base
+      for (let i = 0; i < activeBranches.length; i++) {
+        const branchName = activeBranches[i];
+        const prNumber = activePRs[i];
+        const newBase = i === 0 ? `origin/${config.defaultBranch}` : activeBranches[i - 1];
+        
+        try {
+          // Switch to the branch
+          await this.git.checkoutBranch(branchName);
+          
+          // Rebase onto the new base
+          await this.git.rebaseOnto(newBase);
+          
+          // Force push the rebased branch
+          await this.git.pushBranch(branchName, true);
+          
+          // Update GitHub PR base reference
+          const githubBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
+          await this.github.updatePullRequestBase(prNumber, githubBase);
+          
+        } catch (error) {
+          console.warn(`Warning: Could not rebase branch ${branchName}: ${error}`);
+        }
+      }
+      
+    } finally {
+      // Always return to the original branch
       try {
-        await this.github.updatePullRequestBase(prNumber, newBase);
+        await this.git.checkoutBranch(currentBranch);
       } catch (error) {
-        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
+        console.warn(`Warning: Could not return to branch ${currentBranch}: ${error}`);
       }
     }
   }
