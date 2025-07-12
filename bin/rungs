@@ -1,0 +1,602 @@
+#!/usr/bin/env bun
+// @bun
+
+// src/cli.ts
+import { parseArgs } from "util";
+
+// src/git-manager.ts
+class GitManager {
+  async getCurrentBranch() {
+    const result = await Bun.$`git rev-parse --abbrev-ref HEAD`.text();
+    return result.trim();
+  }
+  async isGitRepo() {
+    try {
+      await Bun.$`git rev-parse --git-dir`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async getStatus() {
+    const currentBranch = await this.getCurrentBranch();
+    const statusResult = await Bun.$`git status --porcelain`.text();
+    const isClean = statusResult.trim() === "";
+    let ahead = 0;
+    let behind = 0;
+    try {
+      const aheadResult = await Bun.$`git rev-list --count HEAD..origin/${currentBranch}`.text();
+      behind = parseInt(aheadResult.trim()) || 0;
+      const behindResult = await Bun.$`git rev-list --count origin/${currentBranch}..HEAD`.text();
+      ahead = parseInt(behindResult.trim()) || 0;
+    } catch {}
+    return {
+      currentBranch,
+      isClean,
+      ahead,
+      behind
+    };
+  }
+  async getCommitsSince(baseBranch) {
+    try {
+      const result = await Bun.$`git log ${baseBranch}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=iso`.text();
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split(`
+`).map((line) => {
+        const [hash, message, author, date] = line.split("|");
+        return { hash, message, author, date };
+      });
+    } catch (error) {
+      throw new Error(`Failed to get commits since ${baseBranch}: ${error}`);
+    }
+  }
+  async fetchOrigin() {
+    try {
+      await Bun.$`git fetch origin`;
+    } catch (error) {
+      throw new Error(`Failed to fetch from origin: ${error}`);
+    }
+  }
+  async rebaseOnto(targetBranch) {
+    try {
+      await Bun.$`git rebase origin/${targetBranch}`;
+    } catch (error) {
+      try {
+        await Bun.$`git rebase --abort`;
+      } catch {}
+      throw new Error(`Failed to rebase onto ${targetBranch}. Please resolve conflicts manually.`);
+    }
+  }
+  async createBranch(branchName, fromCommit) {
+    try {
+      if (fromCommit) {
+        await Bun.$`git checkout -b ${branchName} ${fromCommit}`;
+      } else {
+        await Bun.$`git checkout -b ${branchName}`;
+      }
+    } catch (error) {
+      throw new Error(`Failed to create branch ${branchName}: ${error}`);
+    }
+  }
+  async checkoutBranch(branchName) {
+    try {
+      await Bun.$`git checkout ${branchName}`;
+    } catch (error) {
+      throw new Error(`Failed to checkout branch ${branchName}: ${error}`);
+    }
+  }
+  async branchExists(branchName) {
+    try {
+      await Bun.$`git rev-parse --verify ${branchName}`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async pushBranch(branchName, force = false) {
+    try {
+      const forceFlag = force ? "--force-with-lease" : "";
+      if (force) {
+        await Bun.$`git push origin ${branchName} --force-with-lease`;
+      } else {
+        await Bun.$`git push origin ${branchName}`;
+      }
+    } catch (error) {
+      throw new Error(`Failed to push branch ${branchName}: ${error}`);
+    }
+  }
+  async getRemoteUrl() {
+    try {
+      const result = await Bun.$`git remote get-url origin`.text();
+      return result.trim();
+    } catch (error) {
+      throw new Error(`Failed to get remote URL: ${error}`);
+    }
+  }
+  async getCommitMessage(hash) {
+    try {
+      const result = await Bun.$`git log -1 --pretty=format:"%s" ${hash}`.text();
+      return result.trim();
+    } catch (error) {
+      throw new Error(`Failed to get commit message for ${hash}: ${error}`);
+    }
+  }
+  generateBranchName(commits, userPrefix, strategy) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    switch (strategy) {
+      case "timestamp":
+        return `${userPrefix}/${timestamp}`;
+      case "sequential":
+        return `${userPrefix}/stack-${Date.now()}`;
+      case "commit-message":
+      default:
+        if (commits.length === 0) {
+          return `${userPrefix}/empty-${timestamp}`;
+        }
+        const firstCommit = commits[0];
+        const cleanMessage = firstCommit.message.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
+        return `${userPrefix}/${cleanMessage}`;
+    }
+  }
+}
+
+// src/github-manager.ts
+class GitHubManager {
+  async isGitHubCLIAvailable() {
+    try {
+      await Bun.$`gh --version`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async isAuthenticated() {
+    try {
+      await Bun.$`gh auth status`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async getRepoInfo() {
+    try {
+      const result = await Bun.$`gh repo view --json owner,name`.text();
+      const data = JSON.parse(result);
+      return {
+        owner: data.owner.login,
+        repo: data.name
+      };
+    } catch (error) {
+      throw new Error(`Failed to get repository info: ${error}`);
+    }
+  }
+  async createPullRequest(title, body, head, base, draft = true) {
+    try {
+      const draftFlag = draft ? "--draft" : "";
+      const result = await Bun.$`gh pr create --title ${title} --body ${body} --head ${head} --base ${base} ${draftFlag} --json number,title,body,url,draft,headRefName,baseRefName`.text();
+      const data = JSON.parse(result);
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body,
+        url: data.url,
+        draft: data.draft,
+        head: data.headRefName,
+        base: data.baseRefName
+      };
+    } catch (error) {
+      throw new Error(`Failed to create pull request: ${error}`);
+    }
+  }
+  async updatePullRequest(prNumber, title, body) {
+    try {
+      const args = [];
+      if (title) {
+        args.push("--title", title);
+      }
+      if (body) {
+        args.push("--body", body);
+      }
+      if (args.length > 0) {
+        await Bun.$`gh pr edit ${prNumber} ${args}`;
+      }
+    } catch (error) {
+      throw new Error(`Failed to update pull request #${prNumber}: ${error}`);
+    }
+  }
+  async getPullRequest(branchName) {
+    try {
+      const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,draft,headRefName,baseRefName`.text();
+      const data = JSON.parse(result);
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body,
+        url: data.url,
+        draft: data.draft,
+        head: data.headRefName,
+        base: data.baseRefName
+      };
+    } catch {
+      return null;
+    }
+  }
+  async listPullRequests(head) {
+    try {
+      let cmd = "gh pr list --json number,title,body,url,draft,headRefName,baseRefName";
+      if (head) {
+        cmd += ` --head ${head}`;
+      }
+      const result = await Bun.$`${cmd}`.text();
+      const data = JSON.parse(result);
+      return data.map((pr) => ({
+        number: pr.number,
+        title: pr.title,
+        body: pr.body,
+        url: pr.url,
+        draft: pr.draft,
+        head: pr.headRefName,
+        base: pr.baseRefName
+      }));
+    } catch (error) {
+      throw new Error(`Failed to list pull requests: ${error}`);
+    }
+  }
+  async closePullRequest(prNumber) {
+    try {
+      await Bun.$`gh pr close ${prNumber}`;
+    } catch (error) {
+      throw new Error(`Failed to close pull request #${prNumber}: ${error}`);
+    }
+  }
+  generatePRTitle(commits) {
+    if (commits.length === 0) {
+      return "Empty stack";
+    }
+    if (commits.length === 1) {
+      return commits[0].message;
+    }
+    return `${commits[0].message} (+${commits.length - 1} more)`;
+  }
+  generatePRBody(commits) {
+    if (commits.length === 0) {
+      return "Empty stack - no commits to include.";
+    }
+    if (commits.length === 1) {
+      return `Single commit stack:
+
+- ${commits[0].message}`;
+    }
+    const commitList = commits.map((commit) => `- ${commit.message}`).join(`
+`);
+    return `Stack of ${commits.length} commits:
+
+${commitList}`;
+  }
+}
+
+// src/config-manager.ts
+import { join } from "path";
+import { homedir } from "os";
+var DEFAULT_CONFIG = {
+  userPrefix: "dev",
+  defaultBranch: "main",
+  draftPRs: true,
+  autoRebase: true,
+  branchNaming: "commit-message"
+};
+
+class ConfigManager {
+  configPath;
+  constructor(customPath) {
+    this.configPath = customPath || join(homedir(), ".rungs", "config.json");
+  }
+  async ensureConfigDir() {
+    const configDir = this.configPath.split("/").slice(0, -1).join("/");
+    try {
+      await Bun.$`mkdir -p ${configDir}`;
+    } catch (error) {
+      throw new Error(`Failed to create config directory: ${error}`);
+    }
+  }
+  async getAll() {
+    try {
+      const file = Bun.file(this.configPath);
+      if (!await file.exists()) {
+        return DEFAULT_CONFIG;
+      }
+      const content = await file.text();
+      const config = JSON.parse(content);
+      return { ...DEFAULT_CONFIG, ...config };
+    } catch (error) {
+      console.warn(`Failed to read config file, using defaults: ${error}`);
+      return DEFAULT_CONFIG;
+    }
+  }
+  async get(key) {
+    const config = await this.getAll();
+    return config[key];
+  }
+  async set(key, value) {
+    await this.ensureConfigDir();
+    const config = await this.getAll();
+    config[key] = value;
+    try {
+      await Bun.write(this.configPath, JSON.stringify(config, null, 2));
+    } catch (error) {
+      throw new Error(`Failed to write config file: ${error}`);
+    }
+  }
+  async update(updates) {
+    await this.ensureConfigDir();
+    const config = await this.getAll();
+    const newConfig = { ...config, ...updates };
+    try {
+      await Bun.write(this.configPath, JSON.stringify(newConfig, null, 2));
+    } catch (error) {
+      throw new Error(`Failed to update config file: ${error}`);
+    }
+  }
+  async reset() {
+    await this.ensureConfigDir();
+    try {
+      await Bun.write(this.configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    } catch (error) {
+      throw new Error(`Failed to reset config file: ${error}`);
+    }
+  }
+}
+
+// src/stack-manager.ts
+class StackManager {
+  config;
+  git;
+  github;
+  stateFile;
+  constructor(config, git, github) {
+    this.config = config;
+    this.git = git;
+    this.github = github;
+    this.stateFile = ".rungs-state.json";
+  }
+  async ensurePrerequisites() {
+    if (!await this.git.isGitRepo()) {
+      throw new Error("Not in a git repository");
+    }
+    if (!await this.github.isGitHubCLIAvailable()) {
+      throw new Error("GitHub CLI (gh) is not installed or not in PATH");
+    }
+    if (!await this.github.isAuthenticated()) {
+      throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' first.");
+    }
+  }
+  async loadState() {
+    try {
+      const file = Bun.file(this.stateFile);
+      if (!await file.exists()) {
+        return { branches: [], pullRequests: [] };
+      }
+      const content = await file.text();
+      return JSON.parse(content);
+    } catch {
+      return { branches: [], pullRequests: [] };
+    }
+  }
+  async saveState(state) {
+    try {
+      await Bun.write(this.stateFile, JSON.stringify(state, null, 2));
+    } catch (error) {
+      throw new Error(`Failed to save state: ${error}`);
+    }
+  }
+  async pushStack() {
+    await this.ensurePrerequisites();
+    const config = await this.config.getAll();
+    const currentBranch = await this.git.getCurrentBranch();
+    if (currentBranch !== config.defaultBranch) {
+      throw new Error(`Must be on ${config.defaultBranch} branch to push stack. Currently on ${currentBranch}.`);
+    }
+    const status = await this.git.getStatus();
+    if (!status.isClean) {
+      throw new Error("Working directory is not clean. Please commit or stash changes.");
+    }
+    if (config.autoRebase) {
+      console.log("Fetching latest changes...");
+      await this.git.fetchOrigin();
+      if (status.behind > 0) {
+        console.log(`Rebasing ${status.behind} commits...`);
+        await this.git.rebaseOnto(config.defaultBranch);
+      }
+    }
+    const state = await this.loadState();
+    const baseRef = state.lastProcessedCommit || `origin/${config.defaultBranch}`;
+    const newCommits = await this.git.getCommitsSince(baseRef);
+    if (newCommits.length === 0) {
+      console.log("No new commits to process.");
+      return;
+    }
+    console.log(`Found ${newCommits.length} new commits to process.`);
+    const branchName = this.git.generateBranchName(newCommits, config.userPrefix, config.branchNaming);
+    if (await this.git.branchExists(branchName)) {
+      throw new Error(`Branch ${branchName} already exists. Please delete it or use a different naming strategy.`);
+    }
+    console.log(`Creating branch: ${branchName}`);
+    await this.git.createBranch(branchName);
+    await this.git.pushBranch(branchName);
+    console.log("Creating pull request...");
+    const prTitle = this.github.generatePRTitle(newCommits);
+    const prBody = this.github.generatePRBody(newCommits);
+    const pr = await this.github.createPullRequest(prTitle, prBody, branchName, config.defaultBranch, config.draftPRs);
+    console.log(`Created pull request: ${pr.url}`);
+    await this.git.checkoutBranch(config.defaultBranch);
+    const newState = {
+      lastProcessedCommit: newCommits[0].hash,
+      branches: [...state.branches, branchName],
+      pullRequests: [...state.pullRequests, pr.number]
+    };
+    await this.saveState(newState);
+    console.log(`
+Stack created successfully!
+- Branch: ${branchName}
+- Pull Request: #${pr.number}
+- URL: ${pr.url}
+
+You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.
+    `);
+  }
+  async getStatus() {
+    await this.ensurePrerequisites();
+    const config = await this.config.getAll();
+    const gitStatus = await this.git.getStatus();
+    const state = await this.loadState();
+    const baseRef = state.lastProcessedCommit || `origin/${config.defaultBranch}`;
+    const newCommits = await this.git.getCommitsSince(baseRef);
+    let statusMessage = `
+Current Status:
+- Branch: ${gitStatus.currentBranch}
+- Clean: ${gitStatus.isClean ? "Yes" : "No"}
+- Ahead: ${gitStatus.ahead} commits
+- Behind: ${gitStatus.behind} commits
+
+Stack Status:
+- Active branches: ${state.branches.length}
+- Active PRs: ${state.pullRequests.length}
+- New commits ready: ${newCommits.length}
+`;
+    if (state.branches.length > 0) {
+      statusMessage += `
+Active Branches:
+${state.branches.map((b) => `  - ${b}`).join(`
+`)}`;
+    }
+    if (state.pullRequests.length > 0) {
+      statusMessage += `
+Active PRs:
+${state.pullRequests.map((pr) => `  - #${pr}`).join(`
+`)}`;
+    }
+    if (newCommits.length > 0) {
+      statusMessage += `
+New Commits (ready to push):
+${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
+`)}`;
+    }
+    return statusMessage;
+  }
+}
+
+// src/cli.ts
+var COMMANDS = {
+  push: "Create a new stack or add commits to existing stack",
+  status: "Show current stack status",
+  config: "Manage configuration",
+  help: "Show help information"
+};
+async function main() {
+  try {
+    const { positionals, values } = parseArgs({
+      args: process.argv.slice(2),
+      options: {
+        help: { type: "boolean", short: "h" },
+        config: { type: "string", short: "c" },
+        verbose: { type: "boolean", short: "v" }
+      },
+      allowPositionals: true
+    });
+    const options = values;
+    const [command, ...args] = positionals;
+    if (options.help || !command || command === "help") {
+      showHelp();
+      return;
+    }
+    if (!isValidCommand(command)) {
+      console.error(`Unknown command: ${command}`);
+      console.error("Run 'rungs help' for available commands.");
+      process.exit(1);
+    }
+    const config = new ConfigManager(options.config);
+    const git = new GitManager;
+    const github = new GitHubManager;
+    const stack = new StackManager(config, git, github);
+    switch (command) {
+      case "push":
+        await handlePush(stack, args, options);
+        break;
+      case "status":
+        await handleStatus(stack, options);
+        break;
+      case "config":
+        await handleConfig(config, args, options);
+        break;
+      default:
+        console.error(`Command not implemented: ${command}`);
+        process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : String(error));
+    if (process.argv.includes("--verbose") || process.argv.includes("-v")) {
+      console.error(error);
+    }
+    process.exit(1);
+  }
+}
+function isValidCommand(cmd) {
+  return cmd in COMMANDS;
+}
+function showHelp() {
+  console.log(`
+rungs - CLI tool for managing stacked diffs with Git and GitHub
+
+USAGE:
+  rungs <command> [options]
+
+COMMANDS:
+${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(10)} ${desc}`).join(`
+`)}
+
+OPTIONS:
+  -h, --help       Show help information
+  -c, --config     Path to config file
+  -v, --verbose    Enable verbose output
+
+EXAMPLES:
+  rungs push                 # Create/update stack with current commits
+  rungs status               # Show current stack status
+  rungs config set name john # Set user name prefix for branches
+  rungs help                 # Show this help
+`);
+}
+async function handlePush(stack, args, options) {
+  console.log("Creating or updating stack...");
+  await stack.pushStack();
+  console.log("Stack operation completed successfully!");
+}
+async function handleStatus(stack, options) {
+  console.log("Checking stack status...");
+  const status = await stack.getStatus();
+  console.log(status);
+}
+async function handleConfig(config, args, options) {
+  const [action, key, value] = args;
+  if (action === "set" && key && value) {
+    await config.set(key, value);
+    console.log(`Set ${key} = ${value}`);
+  } else if (action === "get" && key) {
+    const val = await config.get(key);
+    console.log(`${key} = ${val ?? "undefined"}`);
+  } else if (action === "list" || !action) {
+    const allConfig = await config.getAll();
+    console.log("Configuration:");
+    for (const [k, v] of Object.entries(allConfig)) {
+      console.log(`  ${k} = ${v}`);
+    }
+  } else {
+    console.error("Usage: rungs config [set <key> <value> | get <key> | list]");
+    process.exit(1);
+  }
+}
+if (import.meta.main) {
+  main();
+}
