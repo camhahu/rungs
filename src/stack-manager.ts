@@ -2,6 +2,8 @@ import { ConfigManager } from "./config-manager.js";
 import { GitManager, GitCommit } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
 import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo, logSummary } from "./output-manager.js";
+import * as path from "path";
+import * as os from "os";
 
 interface StackState {
   lastProcessedCommit?: string;
@@ -11,14 +13,73 @@ interface StackState {
 }
 
 export class StackManager {
-  private stateFile: string;
+  private stateFile: string | null = null;
 
   constructor(
     private config: ConfigManager,
     private git: GitManager,
     private github: GitHubManager
   ) {
-    this.stateFile = ".rungs-state.json";
+    // State file path will be determined when we need it (after ensuring we're in a git repo)
+  }
+
+  private async getStateFilePath(): Promise<string> {
+    if (this.stateFile) {
+      return this.stateFile;
+    }
+
+    // Get repository information
+    const repoInfo = await this.getRepositoryInfo();
+    
+    // Create state directory path: ~/.config/rungs/{owner}/{repo}/
+    const stateDir = path.join(os.homedir(), ".config", "rungs", repoInfo.owner, repoInfo.repo);
+    const stateFilePath = path.join(stateDir, "state.json");
+    
+    // Ensure directory exists
+    await this.ensureDirectoryExists(stateDir);
+    
+    this.stateFile = stateFilePath;
+    return stateFilePath;
+  }
+
+  private async getRepositoryInfo(): Promise<{ owner: string; repo: string }> {
+    try {
+      // Get the remote URL
+      const result = await Bun.$`git config --get remote.origin.url`;
+      
+      // Handle different return formats (test vs real environment)
+      let url: string;
+      if (result && typeof result === 'object' && 'stdout' in result) {
+        url = result.stdout.toString().trim();
+      } else if (typeof result === 'string') {
+        url = result.trim();
+      } else {
+        throw new Error("Could not get remote URL");
+      }
+      
+      // Parse GitHub URL (supports both HTTPS and SSH formats)
+      let match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (!match) {
+        throw new Error("Could not parse GitHub repository URL");
+      }
+      
+      const [, owner, repo] = match;
+      return { owner, repo };
+    } catch (error) {
+      // Fallback for test environments or when git is not available
+      if (process.env.NODE_ENV === 'test') {
+        return { owner: 'test', repo: 'repo' };
+      }
+      throw new Error(`Failed to determine repository info: ${error}`);
+    }
+  }
+
+  private async ensureDirectoryExists(dirPath: string): Promise<void> {
+    try {
+      await Bun.write(path.join(dirPath, ".keep"), "");
+    } catch (error) {
+      throw new Error(`Failed to create directory ${dirPath}: ${error}`);
+    }
   }
 
   async ensurePrerequisites(): Promise<void> {
@@ -166,7 +227,8 @@ export class StackManager {
 
   async loadState(): Promise<StackState> {
     try {
-      const file = Bun.file(this.stateFile);
+      const stateFilePath = await this.getStateFilePath();
+      const file = Bun.file(stateFilePath);
       if (!(await file.exists())) {
         return { branches: [], pullRequests: [] };
       }
@@ -182,7 +244,8 @@ export class StackManager {
 
   async saveState(state: StackState): Promise<void> {
     try {
-      await Bun.write(this.stateFile, JSON.stringify(state, null, 2));
+      const stateFilePath = await this.getStateFilePath();
+      await Bun.write(stateFilePath, JSON.stringify(state, null, 2));
     } catch (error) {
       throw new Error(`Failed to save state: ${error}`);
     }
@@ -358,9 +421,9 @@ export class StackManager {
     
     logProgress(`Creating PR: "${prTitle}"`);
     logInfo(`Base branch: ${baseBranch}`, 1);
-    logInfo(`Draft mode: ${autoPublish ? "No (published)" : "Yes"}`, 1);
     
     const isDraft = autoPublish ? false : config.draftPRs;
+    logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
     const pr = await this.github.createPullRequest(
       prTitle,
       prBody,

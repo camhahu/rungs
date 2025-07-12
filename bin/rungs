@@ -523,7 +523,7 @@ var DEFAULT_CONFIG = {
 class ConfigManager {
   configPath;
   constructor(customPath) {
-    this.configPath = customPath || join(homedir(), ".rungs", "config.json");
+    this.configPath = customPath || join(homedir(), ".config", "rungs", "config.json");
   }
   async ensureConfigDir() {
     const configDir = this.configPath.split("/").slice(0, -1).join("/");
@@ -768,16 +768,58 @@ function setVerbose(verbose) {
 }
 
 // src/stack-manager.ts
+import * as path from "path";
+import * as os from "os";
+
 class StackManager {
   config;
   git;
   github;
-  stateFile;
+  stateFile = null;
   constructor(config2, git, github) {
     this.config = config2;
     this.git = git;
     this.github = github;
-    this.stateFile = ".rungs-state.json";
+  }
+  async getStateFilePath() {
+    if (this.stateFile) {
+      return this.stateFile;
+    }
+    const repoInfo = await this.getRepositoryInfo();
+    const stateDir = path.join(os.homedir(), ".config", "rungs", repoInfo.owner, repoInfo.repo);
+    const stateFilePath = path.join(stateDir, "state.json");
+    await this.ensureDirectoryExists(stateDir);
+    this.stateFile = stateFilePath;
+    return stateFilePath;
+  }
+  async getRepositoryInfo() {
+    try {
+      const result = await Bun.$`git config --get remote.origin.url`;
+      let url;
+      if (result && typeof result === "object" && "stdout" in result) {
+        url = result.stdout.toString().trim();
+      } else if (typeof result === "string") {
+        url = result.trim();
+      } else {
+        throw new Error("Could not get remote URL");
+      }
+      let match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (!match) {
+        throw new Error("Could not parse GitHub repository URL");
+      }
+      const [, owner, repo] = match;
+      return { owner, repo };
+    } catch (error) {
+      if (false) {}
+      throw new Error(`Failed to determine repository info: ${error}`);
+    }
+  }
+  async ensureDirectoryExists(dirPath) {
+    try {
+      await Bun.write(path.join(dirPath, ".keep"), "");
+    } catch (error) {
+      throw new Error(`Failed to create directory ${dirPath}: ${error}`);
+    }
   }
   async ensurePrerequisites() {
     if (!await this.git.isGitRepo()) {
@@ -882,7 +924,8 @@ class StackManager {
   }
   async loadState() {
     try {
-      const file = Bun.file(this.stateFile);
+      const stateFilePath = await this.getStateFilePath();
+      const file = Bun.file(stateFilePath);
       if (!await file.exists()) {
         return { branches: [], pullRequests: [] };
       }
@@ -895,7 +938,8 @@ class StackManager {
   }
   async saveState(state) {
     try {
-      await Bun.write(this.stateFile, JSON.stringify(state, null, 2));
+      const stateFilePath = await this.getStateFilePath();
+      await Bun.write(stateFilePath, JSON.stringify(state, null, 2));
     } catch (error) {
       throw new Error(`Failed to save state: ${error}`);
     }
@@ -1016,8 +1060,8 @@ class StackManager {
     const baseBranch = state.lastBranch || config2.defaultBranch;
     logProgress(`Creating PR: "${prTitle}"`);
     logInfo(`Base branch: ${baseBranch}`, 1);
-    logInfo(`Draft mode: ${autoPublish ? "No (published)" : "Yes"}`, 1);
     const isDraft = autoPublish ? false : config2.draftPRs;
+    logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
     const pr = await this.github.createPullRequest(prTitle, prBody, branchName, baseBranch, isDraft);
     logSuccess(`Created pull request: ${pr.url}`);
     endGroup();

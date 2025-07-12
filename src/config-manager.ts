@@ -21,7 +21,7 @@ export class ConfigManager {
   private configPath: string;
 
   constructor(customPath?: string) {
-    this.configPath = customPath || join(homedir(), ".rungs", "config.json");
+    this.configPath = customPath || join(homedir(), ".config", "rungs", "config.json");
   }
 
   async ensureConfigDir(): Promise<void> {
