@@ -177,6 +177,36 @@ export class StackManager {
     }
   }
 
+  async mergePullRequest(
+    prNumber?: number,
+    mergeMethod: "squash" | "merge" | "rebase" = "squash",
+    deleteBranch: boolean = true
+  ): Promise<void> {
+    await this.ensurePrerequisites();
+    
+    // If no PR number provided, find the top PR in the stack
+    if (!prNumber) {
+      const state = await this.loadState();
+      if (state.pullRequests.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = state.pullRequests[state.pullRequests.length - 1];
+    }
+    
+    console.log(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
+    
+    // Merge the PR
+    await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    
+    console.log(`✅ Successfully merged PR #${prNumber}`);
+    
+    // Sync state and update remaining PRs (this triggers auto-rebase)
+    console.log("Updating stack state...");
+    await this.syncWithGitHub();
+    
+    console.log("Stack state updated successfully!");
+  }
+
   async pushStack(): Promise<void> {
     await this.ensurePrerequisites();
 

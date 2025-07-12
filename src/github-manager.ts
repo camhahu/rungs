@@ -131,6 +131,44 @@ export class GitHubManager {
     }
   }
 
+  async mergePullRequest(
+    prNumber: number, 
+    mergeMethod: "squash" | "merge" | "rebase" = "squash",
+    deleteBranch: boolean = true
+  ): Promise<void> {
+    try {
+      const args = ["gh", "pr", "merge", prNumber.toString()];
+      
+      switch (mergeMethod) {
+        case "squash":
+          args.push("--squash");
+          break;
+        case "merge":
+          args.push("--merge");
+          break;
+        case "rebase":
+          args.push("--rebase");
+          break;
+      }
+      
+      if (deleteBranch) {
+        args.push("--delete-branch");
+      }
+      
+      await Bun.$`${args}`;
+    } catch (error: any) {
+      let errorMessage = `Failed to merge PR #${prNumber}`;
+      
+      if (error.stderr) {
+        errorMessage += `: ${error.stderr.toString().trim()}`;
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+  }
+
   async getPullRequest(branchName: string): Promise<PullRequest | null> {
     try {
       const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,isDraft,headRefName,baseRefName`.text();

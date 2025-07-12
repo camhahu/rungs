@@ -15,6 +15,7 @@ interface CliOptions {
 const COMMANDS = {
   push: "Create a new stack or add commits to existing stack",
   status: "Show current stack status",
+  merge: "Merge PRs and update stack state",
   config: "Manage configuration",
   help: "Show help information"
 } as const;
@@ -62,6 +63,9 @@ async function main() {
         break;
       case "status":
         await handleStatus(stack, options);
+        break;
+      case "merge":
+        await handleMerge(stack, args, options);
         break;
       case "rebase":
         await handleRebase(stack, args, options);
@@ -121,6 +125,43 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
   console.log("Checking stack status...");
   const status = await stack.getStatus();
   console.log(status);
+}
+
+async function handleMerge(stack: StackManager, args: string[], options: CliOptions) {
+  const [prNumberStr, ...flags] = args;
+  
+  // Parse options
+  let mergeMethod: "squash" | "merge" | "rebase" = "squash";
+  let deleteBranch = true;
+  
+  for (const flag of flags) {
+    switch (flag) {
+      case "--squash":
+        mergeMethod = "squash";
+        break;
+      case "--merge":
+        mergeMethod = "merge";
+        break;
+      case "--rebase":
+        mergeMethod = "rebase";
+        break;
+      case "--no-delete-branch":
+        deleteBranch = false;
+        break;
+      case "--delete-branch":
+        deleteBranch = true;
+        break;
+    }
+  }
+  
+  const prNumber = prNumberStr ? parseInt(prNumberStr) : undefined;
+  
+  if (prNumberStr && isNaN(prNumber!)) {
+    console.error("Error: PR number must be a valid integer");
+    process.exit(1);
+  }
+  
+  await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
 }
 
 async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
