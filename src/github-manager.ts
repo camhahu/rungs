@@ -48,29 +48,38 @@ export class GitHubManager {
     draft: boolean = true
   ): Promise<PullRequest> {
     try {
-      // Create the PR first
-      const escapedTitle = title.replace(/"/g, '\\"');
-      const escapedBody = body.replace(/"/g, '\\"');
+      // Create a temp file for the body to avoid shell escaping issues
+      const bodyFile = `/tmp/rungs-pr-body-${Date.now()}.txt`;
+      await Bun.write(bodyFile, body);
       
-      let cmd = `gh pr create --title "${escapedTitle}" --body "${escapedBody}" --head "${head}" --base "${base}"`;
-      if (draft) {
-        cmd += " --draft";
+      try {
+        const args = ["gh", "pr", "create", "--title", title, "--body-file", bodyFile, "--head", head, "--base", base];
+        if (draft) {
+          args.push("--draft");
+        }
+        
+        const prUrl = await Bun.$`${args}`.text();
+        
+        // Extract PR number from URL
+        const prNumber = parseInt(prUrl.trim().split('/').pop() || '0');
+        
+        return {
+          number: prNumber,
+          title,
+          body,
+          url: prUrl.trim(),
+          draft,
+          head,
+          base
+        };
+      } finally {
+        // Clean up temp file
+        try {
+          await Bun.$`rm ${bodyFile}`.quiet();
+        } catch {
+          // Ignore cleanup errors
+        }
       }
-      
-      const prUrl = await Bun.$`${cmd}`.text();
-      
-      // Extract PR number from URL
-      const prNumber = parseInt(prUrl.trim().split('/').pop() || '0');
-      
-      return {
-        number: prNumber,
-        title,
-        body,
-        url: prUrl.trim(),
-        draft,
-        head,
-        base
-      };
     } catch (error) {
       throw new Error(`Failed to create pull request: ${error}`);
     }
