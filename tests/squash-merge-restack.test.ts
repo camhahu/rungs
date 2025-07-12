@@ -44,7 +44,7 @@ test("GitManager new methods should call correct git commands", async () => {
   const gitManagerSource = await Bun.file("src/git-manager.ts").text();
   
   // Check fetchBranch implementation
-  expect(gitManagerSource).toContain("git fetch origin ${branch}:${branch}");
+  expect(gitManagerSource).toContain("git fetch origin ${branch}");
   
   // Check pushForceWithLease implementation  
   expect(gitManagerSource).toContain("git push origin ${branch} --force-with-lease");

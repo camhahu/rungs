@@ -338,7 +338,7 @@ export class GitManager {
 
   async fetchBranch(branch: string): Promise<void> {
     try {
-      await Bun.$`git fetch origin ${branch}:${branch}`;
+      await Bun.$`git fetch origin ${branch}`;
     } catch (error) {
       throw new Error(`Failed to fetch branch ${branch}: ${error}`);
     }
