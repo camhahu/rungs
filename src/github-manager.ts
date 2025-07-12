@@ -49,11 +49,13 @@ export class GitHubManager {
   ): Promise<PullRequest> {
     try {
       // Create the PR first
+      console.log(`Creating PR: title="${title}", head="${head}"`);
       let cmd = `gh pr create --title "${title}" --body "${body}" --head "${head}" --base "${base}"`;
       if (draft) {
         cmd += " --draft";
       }
       
+      console.log(`Running: ${cmd}`);
       const prUrl = await Bun.$`${cmd}`.text();
       
       // Extract PR number from URL
