@@ -142,6 +142,7 @@ The project uses:
 3. **Test stacking** - Create multiple PRs to validate stack dependencies work correctly
 4. **Verify behavior** - Use `rungs status` and `gh pr list` to confirm expected state
 5. **Document findings** - Note any issues or improvements discovered through usage
+6. Never add 'Co-authored by ...' or similar messages to commits. Commit as me.
 
 ### Commit Guidelines for Dogfooding
 - **NEVER commit when tests are failing** - All tests must pass before any commit
