@@ -1,7 +1,7 @@
 import { ConfigManager } from "./config-manager.js";
 import { GitManager, GitCommit } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
-import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo } from "./output-manager.js";
+import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo, logSummary } from "./output-manager.js";
 
 interface StackState {
   lastProcessedCommit?: string;
@@ -347,7 +347,7 @@ export class StackManager {
     logSuccess("Stack state updated");
     endGroup();
 
-    output.logSummary("Stack Created Successfully", [
+    logSummary("Stack Created Successfully", [
       { label: "Branch", value: branchName },
       { label: "Pull Request", value: `#${pr.number}` },
       { label: "URL", value: pr.url }

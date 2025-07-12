@@ -885,7 +885,7 @@ class StackManager {
     await this.saveState(newState);
     logSuccess("Stack state updated");
     endGroup();
-    output.logSummary("Stack Created Successfully", [
+    logSummary("Stack Created Successfully", [
       { label: "Branch", value: branchName },
       { label: "Pull Request", value: `#${pr.number}` },
       { label: "URL", value: pr.url }
