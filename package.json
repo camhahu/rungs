@@ -18,5 +18,6 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "keywords": ["git", "github", "stacked-diffs", "pull-requests", "cli"]
 }
