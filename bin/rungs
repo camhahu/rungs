@@ -963,7 +963,8 @@ class StackManager {
       } catch {
         try {
           const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim();
+          baseRef = rootCommit.trim().split(`
+`)[0];
         } catch {
           baseRef = `HEAD~10`;
         }
@@ -1055,7 +1056,8 @@ class StackManager {
       } catch {
         try {
           const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim();
+          baseRef = rootCommit.trim().split(`
+`)[0];
         } catch {
           baseRef = `HEAD~10`;
         }

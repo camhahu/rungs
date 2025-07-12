@@ -284,7 +284,7 @@ export class StackManager {
         // Find the root commit or use a reasonable base
         try {
           const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim();
+          baseRef = rootCommit.trim().split('\n')[0]; // Take first root commit if multiple exist
         } catch {
           // If all else fails, just get the last few commits
           baseRef = `HEAD~10`; // Arbitrary limit to avoid too many commits
@@ -417,7 +417,7 @@ export class StackManager {
       } catch {
         try {
           const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-          baseRef = rootCommit.trim();
+          baseRef = rootCommit.trim().split('\n')[0]; // Take first root commit if multiple exist
         } catch {
           baseRef = `HEAD~10`;
         }
