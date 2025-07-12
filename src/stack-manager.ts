@@ -476,13 +476,47 @@ Stack Status (from GitHub):
   ): Promise<void> {
     await this.ensurePrerequisites();
     
+    // Get current stack state first
+    const currentStack = await this.getCurrentStack();
+    
     // If no PR number provided, find the top PR in the stack
     if (!prNumber) {
-      const currentStack = await this.getCurrentStack();
       if (currentStack.prs.length === 0) {
         throw new Error("No PRs found in current stack");
       }
       prNumber = currentStack.prs[currentStack.prs.length - 1].number;
+    }
+    
+    // CRITICAL FIX: Pre-emptively update dependent PR bases BEFORE merging
+    // This prevents GitHub from auto-closing dependent PRs when the branch is deleted
+    const prBeingMerged = currentStack.prs.find(pr => pr.number === prNumber);
+    
+    if (prBeingMerged && deleteBranch) {
+      // Find PRs that will be affected by this merge (those pointing to the branch being deleted)
+      const dependentPRs = currentStack.prs.filter(pr => 
+        pr.baseRefName === prBeingMerged.headRefName && pr.number !== prNumber
+      );
+      
+      if (dependentPRs.length > 0) {
+        startGroup(`Pre-merge stack updates`, "github");
+        logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
+        
+        for (const dependentPR of dependentPRs) {
+          // Find the correct new base for this PR
+          const prIndex = currentStack.prs.findIndex(pr => pr.number === dependentPR.number);
+          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : await this.config.get('defaultBranch');
+          
+          try {
+            logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.baseRefName} -> ${newBase}`, 1);
+            await this.github.updatePullRequestBase(dependentPR.number, newBase);
+            logSuccess(`Pre-updated PR #${dependentPR.number} base to avoid auto-closure`, 1);
+          } catch (error) {
+            logWarning(`Could not pre-update PR #${dependentPR.number} base: ${error}`, 1);
+          }
+        }
+        
+        endGroup();
+      }
     }
     
     logInfo(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
