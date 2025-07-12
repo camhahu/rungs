@@ -94,18 +94,20 @@ USAGE:
   rungs <command> [options]
 
 COMMANDS:
-${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(10)} ${desc}`).join('\n')}
+${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(12)} ${desc}`).join('\n')}
 
 OPTIONS:
-  -h, --help       Show help information
-  -c, --config     Path to config file
-  -v, --verbose    Enable verbose output
+  -h, --help         Show help information
+  -c, --config PATH  Specify config file path
+  -v, --verbose      Enable verbose output
 
 EXAMPLES:
-  rungs push                 # Create/update stack with current commits
-  rungs status               # Show current stack status
-  rungs config set name john # Set user name prefix for branches
-  rungs help                 # Show this help
+  rungs push                   # Create/update stack with current commits
+  rungs status                 # Show current stack status
+  rungs config set name john   # Set user name prefix for branches
+  rungs help                   # Show this help
+
+For more information, visit: https://github.com/camhahu/rungs
 `);
 }
 

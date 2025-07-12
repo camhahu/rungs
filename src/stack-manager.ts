@@ -23,16 +23,84 @@ export class StackManager {
   async ensurePrerequisites(): Promise<void> {
     // Check if we're in a git repository
     if (!(await this.git.isGitRepo())) {
-      throw new Error("Not in a git repository");
+      throw new Error("Not in a git repository. Run 'git init' to initialize a repository.");
     }
 
     // Check if GitHub CLI is available and authenticated
     if (!(await this.github.isGitHubCLIAvailable())) {
-      throw new Error("GitHub CLI (gh) is not installed or not in PATH");
+      throw new Error("GitHub CLI (gh) is not installed or not in PATH. Install from https://cli.github.com/");
     }
 
     if (!(await this.github.isAuthenticated())) {
-      throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' first.");
+      throw new Error("Not authenticated with GitHub CLI. Run 'gh auth login' to authenticate.");
+    }
+
+    // Always sync with GitHub to ensure state is current
+    await this.syncWithGitHub();
+  }
+
+  async syncWithGitHub(): Promise<void> {
+    const state = await this.loadState();
+    
+    if (state.pullRequests.length === 0) {
+      return; // Nothing to sync
+    }
+
+    const activePRs: number[] = [];
+    const activeBranches: string[] = [];
+    const mergedPRs: number[] = [];
+    
+    // Check each PR's current status on GitHub
+    for (let i = 0; i < state.pullRequests.length; i++) {
+      const prNumber = state.pullRequests[i];
+      const branchName = state.branches[i];
+      
+      try {
+        const status = await this.github.getPullRequestStatus(prNumber);
+        
+        if (status === "open") {
+          // PR is still active, keep it
+          activePRs.push(prNumber);
+          activeBranches.push(branchName);
+        } else if (status === "merged") {
+          // Track merged PRs for automatic rebasing
+          mergedPRs.push(prNumber);
+        }
+        // If status is "closed" (not merged), just remove from tracking
+      } catch (error) {
+        // If we can't check the PR status, assume it's gone
+        console.warn(`Warning: Could not check status of PR #${prNumber}, removing from tracking`);
+      }
+    }
+    
+    // If we have merged PRs and remaining active PRs, automatically rebase
+    if (mergedPRs.length > 0 && activePRs.length > 0) {
+      await this.autoRebaseAfterMerges(activePRs, activeBranches);
+    }
+    
+    // Update state with only active PRs
+    const syncedState: StackState = {
+      ...state,
+      pullRequests: activePRs,
+      branches: activeBranches,
+      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
+    };
+    
+    // Save the synced state
+    await this.saveState(syncedState);
+  }
+
+  private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
+    // Update base branches for remaining PRs
+    for (let i = 0; i < activePRs.length; i++) {
+      const prNumber = activePRs[i];
+      const newBase = i === 0 ? "main" : activeBranches[i - 1];
+      
+      try {
+        await this.github.updatePullRequestBase(prNumber, newBase);
+      } catch (error) {
+        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
+      }
     }
 
     // Always sync with GitHub to ensure state is current
