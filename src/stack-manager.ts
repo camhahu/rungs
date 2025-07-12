@@ -1,6 +1,7 @@
 import { ConfigManager } from "./config-manager.js";
 import { GitManager, GitCommit } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
+import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo } from "./output-manager.js";
 
 interface StackState {
   lastProcessedCommit?: string;
@@ -46,11 +47,15 @@ export class StackManager {
       return; // Nothing to sync
     }
 
+    startGroup("Syncing with GitHub", "github");
+    
     const config = await this.config.getAll();
     const activePRs: number[] = [];
     const activeBranches: string[] = [];
     const mergedPRs: number[] = [];
     const needsRebase: { prNumber: number, branchName: string, correctBase: string }[] = [];
+    
+    logProgress("Checking PR status and bases...");
     
     // Check each PR's current status and base on GitHub
     for (let i = 0; i < state.pullRequests.length; i++) {
@@ -65,14 +70,14 @@ export class StackManager {
           const prDetails = await this.github.getPullRequestByNumber(prNumber);
           const expectedBase = i === 0 ? config.defaultBranch : state.branches[i - 1];
           
-          console.log(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`);
+          logInfo(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`, 1);
           
           if (prDetails && prDetails.base !== expectedBase) {
             // Check if the current base branch exists or was merged/deleted
             const baseExists = await this.branchExistsOnGitHub(prDetails.base);
-            console.log(`Base branch "${prDetails.base}" exists: ${baseExists}`);
+            logInfo(`Base branch "${prDetails.base}" exists: ${baseExists}`, 1);
             if (!baseExists || prDetails.base !== expectedBase) {
-              console.log(`Adding PR #${prNumber} to rebase queue`);
+              logInfo(`Adding PR #${prNumber} to rebase queue`, 1);
               needsRebase.push({ prNumber, branchName, correctBase: expectedBase });
             }
           }
@@ -86,7 +91,7 @@ export class StackManager {
         // If status is "closed" (not merged), just remove from tracking
       } catch (error) {
         // If we can't check the PR status, assume it's gone
-        console.warn(`Warning: Could not check status of PR #${prNumber}, removing from tracking`);
+        logWarning(`Could not check status of PR #${prNumber}, removing from tracking`, 1);
       }
     }
     
@@ -110,6 +115,9 @@ export class StackManager {
     
     // Save the synced state
     await this.saveState(syncedState);
+    
+    logSuccess("GitHub sync completed");
+    endGroup();
   }
 
   private async branchExistsOnGitHub(branchName: string): Promise<boolean> {
@@ -123,16 +131,19 @@ export class StackManager {
   }
 
   private async fixIncorrectBases(needsRebase: { prNumber: number, branchName: string, correctBase: string }[]): Promise<void> {
-    console.log(`Fixing base branches for ${needsRebase.length} PRs with incorrect bases...`);
+    startGroup(`Fixing Incorrect Bases (${needsRebase.length} PRs)`, "github");
     
     for (const { prNumber, branchName, correctBase } of needsRebase) {
       try {
-        console.log(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`);
+        logProgress(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`, 1);
         await this.github.updatePullRequestBase(prNumber, correctBase);
+        logSuccess(`Updated PR #${prNumber} base`, 1);
       } catch (error) {
-        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
+        logWarning(`Could not update base for PR #${prNumber}: ${error}`, 1);
       }
     }
+    
+    endGroup();
   }
 
   private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
@@ -226,13 +237,17 @@ export class StackManager {
 
     // Fetch and rebase if configured
     if (config.autoRebase) {
-      console.log("Fetching latest changes...");
+      startGroup("Fetching Latest Changes", "git");
+      logProgress("Fetching from origin...");
       await this.git.fetchOrigin();
+      logSuccess("Fetched latest changes");
       
       if (status.behind > 0) {
-        console.log(`Rebasing ${status.behind} commits...`);
+        logProgress(`Rebasing ${status.behind} commits...`);
         await this.git.rebaseOnto(config.defaultBranch);
+        logSuccess("Rebase completed");
       }
+      endGroup();
     }
 
     // Load previous state
@@ -263,11 +278,17 @@ export class StackManager {
     const newCommits = await this.git.getCommitsSince(baseRef);
     
     if (newCommits.length === 0) {
-      console.log("No new commits to process.");
+      logInfo("No new commits to process.");
       return;
     }
 
-    console.log(`Found ${newCommits.length} new commits to process.`);
+    startGroup("Processing Commits", "git");
+    logInfo(`Found ${newCommits.length} new commits to process.`);
+    
+    // List the commits being processed
+    const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
+    output.logList(commitList, "Commits to process:", "info");
+    endGroup();
 
     // Create branch for the new commits
     const branchName = this.git.generateBranchName(newCommits, config.userPrefix, config.branchNaming);
@@ -277,18 +298,25 @@ export class StackManager {
       throw new Error(`Branch ${branchName} already exists. Please delete it or use a different naming strategy.`);
     }
 
-    // Create and push branch
-    console.log(`Creating branch: ${branchName}`);
+    startGroup("Creating Branch", "git");
+    logProgress(`Creating branch: ${branchName}`);
     await this.git.createBranch(branchName);
+    
+    logProgress("Pushing branch to remote...");
     await this.git.pushBranch(branchName);
+    logSuccess("Branch created and pushed");
+    endGroup();
 
-    // Create pull request
-    console.log("Creating pull request...");
+    startGroup("Creating Pull Request", "github");
     const prTitle = this.github.generatePRTitle(newCommits);
     const prBody = this.github.generatePRBody(newCommits);
     
     // Use the last branch as base for stacking, or default branch for first PR
     const baseBranch = state.lastBranch || config.defaultBranch;
+    
+    logProgress(`Creating PR: "${prTitle}"`);
+    logInfo(`Base branch: ${baseBranch}`, 1);
+    logInfo(`Draft mode: ${autoPublish ? "No (published)" : "Yes"}`, 1);
     
     const isDraft = autoPublish ? false : config.draftPRs;
     const pr = await this.github.createPullRequest(
@@ -299,12 +327,14 @@ export class StackManager {
       isDraft
     );
 
-    console.log(`Created pull request: ${pr.url}`);
+    logSuccess(`Created pull request: ${pr.url}`);
+    endGroup();
 
-    // Switch back to main branch
+    startGroup("Finalizing", "stack");
+    logProgress("Switching back to main branch...");
     await this.git.checkoutBranch(config.defaultBranch);
 
-    // Update state
+    logProgress("Updating stack state...");
     const newState: StackState = {
       lastProcessedCommit: newCommits[0].hash, // Most recent commit
       branches: [...state.branches, branchName],
@@ -313,15 +343,17 @@ export class StackManager {
     };
     
     await this.saveState(newState);
+    
+    logSuccess("Stack state updated");
+    endGroup();
 
-    console.log(`
-Stack created successfully!
-- Branch: ${branchName}
-- Pull Request: #${pr.number}
-- URL: ${pr.url}
-
-You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.
-    `);
+    output.logSummary("Stack Created Successfully", [
+      { label: "Branch", value: branchName },
+      { label: "Pull Request", value: `#${pr.number}` },
+      { label: "URL", value: pr.url }
+    ]);
+    
+    logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.`);
   }
 
   async getStatus(): Promise<string> {
