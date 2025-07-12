@@ -59,7 +59,7 @@ export class GitManager {
   async getCommitsSince(baseBranch: string): Promise<GitCommit[]> {
     try {
       console.log(`Getting commits since: ${baseBranch}`);
-      const result = await Bun.$`git log ${baseBranch}..HEAD --pretty=format:%H|%s|%an|%ad --date=iso`.text();
+      const result = await Bun.$`git log ${baseBranch}..HEAD '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
       
       if (!result.trim()) {
         return [];
@@ -70,6 +70,8 @@ export class GitManager {
         return { hash, message, author, date };
       });
     } catch (error) {
+      console.error(`Git command failed for ${baseBranch}:`);
+      console.error(error);
       throw new Error(`Failed to get commits since ${baseBranch}: ${error}`);
     }
   }
