@@ -4,7 +4,7 @@ import { parseArgs } from "util";
 import { GitManager } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
 import { ConfigManager } from "./config-manager.js";
-import { StackManager } from "./stack-manager.js";
+import { GitHubStackManager } from "./GitHubStackManager.js";
 import { output, setVerbose, logSummary } from "./output-manager.js";
 
 interface CliOptions {
@@ -69,7 +69,7 @@ async function main() {
     const config = new ConfigManager(options.config);
     const git = new GitManager();
     const github = new GitHubManager();
-    const stack = new StackManager(config, git, github);
+    const stack = new GitHubStackManager(config, git, github);
 
     switch (command) {
       case "stack":
@@ -138,21 +138,21 @@ For more information, visit: https://github.com/camhahu/rungs
 `);
 }
 
-async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
+async function handlePush(stack: GitHubStackManager, args: string[], options: CliOptions) {
   output.startSection("Push Stack Operation", "stack");
   await stack.pushStack(options.autoPublish, options.force);
   output.success("Stack operation completed successfully!");
   output.endSection();
 }
 
-async function handleStatus(stack: StackManager, options: CliOptions) {
+async function handleStatus(stack: GitHubStackManager, options: CliOptions) {
   output.startSection("Stack Status", "stack");
   const status = await stack.getStatus();
   console.log(status);
   output.endSection();
 }
 
-async function handlePublish(stack: StackManager, args: string[], options: CliOptions) {
+async function handlePublish(stack: GitHubStackManager, args: string[], options: CliOptions) {
   const [prNumberStr] = args;
   
   output.startSection("Publish Pull Request", "github");
@@ -176,7 +176,7 @@ async function handlePublish(stack: StackManager, args: string[], options: CliOp
   output.endSection();
 }
 
-async function handleMerge(stack: StackManager, args: string[], options: CliOptions) {
+async function handleMerge(stack: GitHubStackManager, args: string[], options: CliOptions) {
   const [prNumberStr, ...flags] = args;
   
   // Parse options
