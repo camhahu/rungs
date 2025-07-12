@@ -483,10 +483,10 @@ Stack Status:
             errorMessage += "Or:\n";
             errorMessage += `  git rebase origin/${defaultBranch}         # Rebase on top of remote\n\n`;
           } else {
-            errorMessage += `Your local ${defaultBranch} is ${syncResult.aheadCount} commits ahead of remote.\n`;
-            errorMessage += "This means you have local commits that haven't been pushed.\n\n";
-            errorMessage += "To resolve:\n";
-            errorMessage += `  git push origin ${defaultBranch}           # Push your changes first\n\n`;
+            // Normal case: ahead with new commits - this is fine for creating PRs!
+            logInfo(`Local is ${syncResult.aheadCount} commits ahead with new changes - ready to create PR`);
+            endGroup();
+            return;
           }
           break;
           

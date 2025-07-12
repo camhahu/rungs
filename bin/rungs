@@ -1085,16 +1085,9 @@ ${duplicateCheck.duplicateMessages.map((msg) => `  - ${msg}`).join(`
 
 `;
           } else {
-            errorMessage += `Your local ${defaultBranch} is ${syncResult.aheadCount} commits ahead of remote.
-`;
-            errorMessage += `This means you have local commits that haven't been pushed.
-
-`;
-            errorMessage += `To resolve:
-`;
-            errorMessage += `  git push origin ${defaultBranch}           # Push your changes first
-
-`;
+            logInfo(`Local is ${syncResult.aheadCount} commits ahead with new changes - ready to create PR`);
+            endGroup();
+            return;
           }
           break;
         case "behind":
