@@ -162,3 +162,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 > **Final Test A**: Testing with correct field names
 > **REAL FIX TEST A**: Testing with the actual fixed build
 > **REAL FIX TEST B**: Second stacked PR for testing
+> **FINAL TEST A**: Testing with fixed base calculation
