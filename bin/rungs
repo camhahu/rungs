@@ -344,6 +344,29 @@ Hint: Branch name may be too long. GitHub branch names must be 63 characters or 
       throw new Error(`Failed to close pull request #${prNumber}: ${error}`);
     }
   }
+  async publishPullRequest(prNumber) {
+    try {
+      await Bun.$`gh pr ready ${prNumber}`;
+    } catch (error) {
+      let errorMessage = `Failed to publish pull request #${prNumber}`;
+      if (error.stderr) {
+        const stderr = error.stderr.toString().trim();
+        errorMessage += `: ${stderr}`;
+        if (stderr.includes("not a draft")) {
+          errorMessage += `
+
+Hint: This PR is already published (not a draft).`;
+        } else if (stderr.includes("not found")) {
+          errorMessage += `
+
+Hint: PR number may not exist or you may not have access to it.`;
+        }
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      throw new Error(errorMessage);
+    }
+  }
   generatePRTitle(commits) {
     if (commits.length === 0) {
       return "Empty stack";
@@ -585,7 +608,7 @@ class StackManager {
     await this.syncWithGitHub();
     console.log("Stack state updated successfully!");
   }
-  async pushStack() {
+  async pushStack(autoPublish = false) {
     await this.ensurePrerequisites();
     const config = await this.config.getAll();
     const currentBranch = await this.git.getCurrentBranch();
@@ -638,7 +661,8 @@ class StackManager {
     const prTitle = this.github.generatePRTitle(newCommits);
     const prBody = this.github.generatePRBody(newCommits);
     const baseBranch = state.lastBranch || config.defaultBranch;
-    const pr = await this.github.createPullRequest(prTitle, prBody, branchName, baseBranch, config.draftPRs);
+    const isDraft = autoPublish ? false : config.draftPRs;
+    const pr = await this.github.createPullRequest(prTitle, prBody, branchName, baseBranch, isDraft);
     console.log(`Created pull request: ${pr.url}`);
     await this.git.checkoutBranch(config.defaultBranch);
     const newState = {
@@ -734,6 +758,21 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
     await this.saveState(newState);
     console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
   }
+  async publishPullRequest(prNumber) {
+    await this.ensurePrerequisites();
+    if (!prNumber) {
+      const state2 = await this.loadState();
+      if (state2.pullRequests.length === 0) {
+        throw new Error("No PRs found in current stack");
+      }
+      prNumber = state2.pullRequests[state2.pullRequests.length - 1];
+    }
+    const state = await this.loadState();
+    if (!state.pullRequests.includes(prNumber)) {
+      console.warn(`Warning: PR #${prNumber} is not tracked in current stack, but attempting to publish anyway...`);
+    }
+    await this.github.publishPullRequest(prNumber);
+  }
 }
 
 // src/cli.ts
@@ -741,6 +780,7 @@ var COMMANDS = {
   push: "Create a new stack or add commits to existing stack",
   status: "Show current stack status",
   merge: "Merge PRs and update stack state",
+  publish: "Mark PR as ready for review (remove draft status)",
   config: "Manage configuration",
   help: "Show help information"
 };
@@ -754,11 +794,15 @@ async function main() {
       options: {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
-        verbose: { type: "boolean", short: "v" }
+        verbose: { type: "boolean", short: "v" },
+        "auto-publish": { type: "boolean" }
       },
       allowPositionals: true
     });
-    const options = values;
+    const options = {
+      ...values,
+      autoPublish: values["auto-publish"]
+    };
     const [command, ...args] = positionals;
     if (options.help || !command || command === "help") {
       showHelp();
@@ -782,6 +826,9 @@ async function main() {
         break;
       case "merge":
         await handleMerge(stack, args, options);
+        break;
+      case "publish":
+        await handlePublish(stack, args, options);
         break;
       case "rebase":
         await handleRebase(stack, args, options);
@@ -819,25 +866,46 @@ OPTIONS:
   -h, --help         Show help information
   -c, --config PATH  Specify config file path
   -v, --verbose      Enable verbose output
+      --auto-publish Create PRs as published instead of draft
 
 EXAMPLES:
-  rungs push                   # Create/update stack with current commits
-  rungs status                 # Show current stack status
-  rungs config set name john   # Set user name prefix for branches
-  rungs help                   # Show this help
+  rungs push                       # Create/update stack with current commits
+  rungs push --auto-publish        # Create PRs as published instead of draft
+  rungs publish 123                # Mark PR #123 as ready for review
+  rungs publish                    # Mark top PR in stack as ready for review
+  rungs status                     # Show current stack status
+  rungs config set name john       # Set user name prefix for branches
+  rungs help                       # Show this help
 
 For more information, visit: https://github.com/camhahu/rungs
 `);
 }
 async function handlePush(stack, args, options) {
   console.log("Creating or updating stack...");
-  await stack.pushStack();
+  await stack.pushStack(options.autoPublish);
   console.log("Stack operation completed successfully!");
 }
 async function handleStatus(stack, options) {
   console.log("Checking stack status...");
   const status = await stack.getStatus();
   console.log(status);
+}
+async function handlePublish(stack, args, options) {
+  const [prNumberStr] = args;
+  if (prNumberStr) {
+    const prNumber = parseInt(prNumberStr);
+    if (isNaN(prNumber)) {
+      console.error("Error: PR number must be a valid integer");
+      process.exit(1);
+    }
+    console.log(`Publishing PR #${prNumber}...`);
+    await stack.publishPullRequest(prNumber);
+    console.log(`\u2705 Successfully published PR #${prNumber}`);
+  } else {
+    console.log("Publishing top PR in stack...");
+    await stack.publishPullRequest();
+    console.log("\u2705 Successfully published top PR in stack");
+  }
 }
 async function handleMerge(stack, args, options) {
   const [prNumberStr, ...flags] = args;

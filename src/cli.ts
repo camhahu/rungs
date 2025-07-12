@@ -10,12 +10,14 @@ interface CliOptions {
   help?: boolean;
   config?: string;
   verbose?: boolean;
+  autoPublish?: boolean;
 }
 
 const COMMANDS = {
   push: "Create a new stack or add commits to existing stack",
   status: "Show current stack status",
   merge: "Merge PRs and update stack state",
+  publish: "Mark PR as ready for review (remove draft status)",
   config: "Manage configuration",
   help: "Show help information"
 } as const;
@@ -33,12 +35,16 @@ async function main() {
       options: {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
-        verbose: { type: "boolean", short: "v" }
+        verbose: { type: "boolean", short: "v" },
+        "auto-publish": { type: "boolean" }
       },
       allowPositionals: true
     });
 
-    const options = values as CliOptions;
+    const options = {
+      ...values,
+      autoPublish: values["auto-publish"]
+    } as CliOptions;
     const [command, ...args] = positionals;
 
     if (options.help || !command || command === "help") {
@@ -66,6 +72,9 @@ async function main() {
         break;
       case "merge":
         await handleMerge(stack, args, options);
+        break;
+      case "publish":
+        await handlePublish(stack, args, options);
         break;
       case "rebase":
         await handleRebase(stack, args, options);
@@ -104,12 +113,16 @@ OPTIONS:
   -h, --help         Show help information
   -c, --config PATH  Specify config file path
   -v, --verbose      Enable verbose output
+      --auto-publish Create PRs as published instead of draft
 
 EXAMPLES:
-  rungs push                   # Create/update stack with current commits
-  rungs status                 # Show current stack status
-  rungs config set name john   # Set user name prefix for branches
-  rungs help                   # Show this help
+  rungs push                       # Create/update stack with current commits
+  rungs push --auto-publish        # Create PRs as published instead of draft
+  rungs publish 123                # Mark PR #123 as ready for review
+  rungs publish                    # Mark top PR in stack as ready for review
+  rungs status                     # Show current stack status
+  rungs config set name john       # Set user name prefix for branches
+  rungs help                       # Show this help
 
 For more information, visit: https://github.com/camhahu/rungs
 `);
@@ -117,7 +130,7 @@ For more information, visit: https://github.com/camhahu/rungs
 
 async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
   console.log("Creating or updating stack...");
-  await stack.pushStack();
+  await stack.pushStack(options.autoPublish);
   console.log("Stack operation completed successfully!");
 }
 
@@ -125,6 +138,26 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
   console.log("Checking stack status...");
   const status = await stack.getStatus();
   console.log(status);
+}
+
+async function handlePublish(stack: StackManager, args: string[], options: CliOptions) {
+  const [prNumberStr] = args;
+  
+  if (prNumberStr) {
+    const prNumber = parseInt(prNumberStr);
+    if (isNaN(prNumber)) {
+      console.error("Error: PR number must be a valid integer");
+      process.exit(1);
+    }
+    
+    console.log(`Publishing PR #${prNumber}...`);
+    await stack.publishPullRequest(prNumber);
+    console.log(`✅ Successfully published PR #${prNumber}`);
+  } else {
+    console.log("Publishing top PR in stack...");
+    await stack.publishPullRequest();
+    console.log("✅ Successfully published top PR in stack");
+  }
 }
 
 async function handleMerge(stack: StackManager, args: string[], options: CliOptions) {
