@@ -80,8 +80,24 @@ export class GitHubManager {
           // Ignore cleanup errors
         }
       }
-    } catch (error) {
-      throw new Error(`Failed to create pull request: ${error}`);
+    } catch (error: any) {
+      // Extract meaningful error information
+      let errorMessage = "Failed to create pull request";
+      
+      if (error.stderr) {
+        errorMessage += `: ${error.stderr.toString().trim()}`;
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      } else {
+        errorMessage += `: ${error}`;
+      }
+      
+      // Add helpful context for common issues
+      if (error.stderr?.includes("remote ref does not exist") || head.length > 63) {
+        errorMessage += "\n\nHint: Branch name may be too long. GitHub branch names must be 63 characters or less.";
+      }
+      
+      throw new Error(errorMessage);
     }
   }
 
@@ -112,6 +128,44 @@ export class GitHubManager {
       await Bun.$`gh pr edit ${prNumber} --base ${newBase}`;
     } catch (error) {
       throw new Error(`Failed to update pull request #${prNumber} base to ${newBase}: ${error}`);
+    }
+  }
+
+  async mergePullRequest(
+    prNumber: number, 
+    mergeMethod: "squash" | "merge" | "rebase" = "squash",
+    deleteBranch: boolean = true
+  ): Promise<void> {
+    try {
+      const args = ["gh", "pr", "merge", prNumber.toString()];
+      
+      switch (mergeMethod) {
+        case "squash":
+          args.push("--squash");
+          break;
+        case "merge":
+          args.push("--merge");
+          break;
+        case "rebase":
+          args.push("--rebase");
+          break;
+      }
+      
+      if (deleteBranch) {
+        args.push("--delete-branch");
+      }
+      
+      await Bun.$`${args}`;
+    } catch (error: any) {
+      let errorMessage = `Failed to merge PR #${prNumber}`;
+      
+      if (error.stderr) {
+        errorMessage += `: ${error.stderr.toString().trim()}`;
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
     }
   }
 

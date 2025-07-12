@@ -263,6 +263,13 @@ This document tracks all work items needed to implement the rungs CLI project.
 - [ ] **Integration testing framework** - Real-world scenario testing
 - [ ] **Self-development testing** - Continuous validation through actual usage
 
+### Current Dogfooding Issues (2025-12-07)
+- [ ] **rungs push PR creation failure** - `rungs push` fails with unhelpful error "Failed to create pull request: ShellError: Failed with exit code 1"
+  - Need better error handling and user-friendly messages
+  - Should debug the underlying gh CLI failure and show actual error
+  - Error occurred when trying to create PR for auto-rebase fix commit
+  - Should gracefully handle long branch names or other edge cases
+
 ---
 
 *Last updated: 2025-12-07*
