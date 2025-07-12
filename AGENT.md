@@ -74,6 +74,39 @@ See [docs/README-MAINTENANCE.md](docs/README-MAINTENANCE.md) for detailed guidel
 - Cover troubleshooting for actual user issues
 - Update configuration documentation when settings change
 
+## Work Distribution Strategy
+
+**CRITICAL**: Always use subagents for implementation tasks. The main agent should act as taskmaster/coordinator.
+
+### Main Agent Responsibilities
+- Break down complex tasks into clear, autonomous chunks
+- Coordinate multiple subagents working in parallel
+- Provide clear specifications and context for each task
+- Review and integrate work from subagents
+- Make architectural decisions and design choices
+
+### Subagent Usage Guidelines
+- Use Task tool for all implementation work (coding, testing, documentation)
+- Provide complete context and requirements in task descriptions
+- Include verification steps and success criteria
+- Specify exactly what should be returned/summarized
+- Run multiple subagents concurrently when tasks are independent
+
+### When to Use Subagents
+- Adding new features or functionality
+- Writing or updating tests
+- Implementing bug fixes
+- Creating or updating documentation  
+- Refactoring code
+- Making changes across multiple files
+
+### When Main Agent Acts Directly
+- Reading files to understand current state
+- Planning and architectural decisions
+- Coordinating between subagents
+- Final integration and review
+- User communication and status updates
+
 ## Dependencies
 
 The project uses:

@@ -64,6 +64,23 @@ rungs status [options]
 - `--verbose` - Show detailed information about each stack
 - `--remote` - Include remote PR status
 
+#### `rungs rebase`
+Rebases the stack after a PR has been merged, maintaining clean commit history.
+
+```bash
+rungs rebase <pr-number> [options]
+```
+
+**Options:**
+- `--dry-run` - Show what would be done without executing
+- `--force` - Force rebase even if conflicts are detected
+
+**What it does:**
+- Identifies the merged PR in the current stack
+- Updates base branches for subsequent PRs to remove duplicate commits
+- Removes the merged PR from tracking state
+- Maintains the logical dependency chain
+
 #### `rungs config`
 Manages configuration settings.
 
@@ -122,6 +139,15 @@ rungs init [options]
    - Creates new PR(s) for new commits
    - Updates existing PRs if force-pushed
    - Maintains commit order and relationships
+
+### Stack Maintenance After Merges
+1. When a PR in the stack gets merged, user runs `rungs rebase <pr-number>`
+2. Rungs:
+   - Removes the merged PR from tracking
+   - Updates base branches for subsequent PRs
+   - First PR after merged one gets rebased to main
+   - Other PRs get rebased to their immediate predecessor
+   - Maintains clean commit history without duplicates
 
 ## Configuration
 

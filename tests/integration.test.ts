@@ -22,6 +22,7 @@ class MockGitManager extends GitManager {
 class MockGitHubManager extends GitHubManager {
   private mockPRCounter = 1;
   private mockPRs: Map<string, any> = new Map();
+  private mockPRsByNumber: Map<number, any> = new Map();
 
   async isGitHubCLIAvailable(): Promise<boolean> {
     return true;
@@ -44,17 +45,30 @@ class MockGitHubManager extends GitHubManager {
     };
     
     this.mockPRs.set(head, pr);
+    this.mockPRsByNumber.set(prNumber, pr);
     return pr;
+  }
+
+  async updatePullRequestBase(prNumber: number, newBase: string): Promise<void> {
+    const pr = this.mockPRsByNumber.get(prNumber);
+    if (pr) {
+      pr.base = newBase;
+    }
   }
 
   async getPullRequest(branchName: string) {
     return this.mockPRs.get(branchName) || null;
   }
 
+  getPullRequestByNumber(prNumber: number) {
+    return this.mockPRsByNumber.get(prNumber) || null;
+  }
+
   // Reset for each test
   reset() {
     this.mockPRCounter = 1;
     this.mockPRs.clear();
+    this.mockPRsByNumber.clear();
   }
 }
 
@@ -304,4 +318,53 @@ test("integration: branch creation and cleanup", async () => {
   // Verify the branch was created and still exists
   const state = await stackManager.loadState();
   expect(await git.branchExists(state.branches[0])).toBe(true);
+});
+
+test("integration: rebase stack after PR merge", async () => {
+  // Create initial stack with multiple PRs
+  await Bun.$`echo "first commit" >> file1.txt`;
+  await Bun.$`git add file1.txt`;
+  await Bun.$`git commit -m "First commit"`;
+  await stackManager.pushStack();
+  
+  await Bun.$`echo "second commit" >> file2.txt`;
+  await Bun.$`git add file2.txt`;
+  await Bun.$`git commit -m "Second commit"`;
+  await stackManager.pushStack();
+  
+  await Bun.$`echo "third commit" >> file3.txt`;
+  await Bun.$`git add file3.txt`;
+  await Bun.$`git commit -m "Third commit"`;
+  await stackManager.pushStack();
+  
+  // Verify we have 3 PRs
+  let state = await stackManager.loadState();
+  expect(state.pullRequests).toEqual([1, 2, 3]);
+  expect(state.branches.length).toBe(3);
+  
+  // Verify initial PR bases (second PR should base on first branch, third on second)
+  expect(mockGitHub.getPullRequestByNumber(1)?.base).toBe("main");
+  expect(mockGitHub.getPullRequestByNumber(2)?.base).toBe(state.branches[0]);
+  expect(mockGitHub.getPullRequestByNumber(3)?.base).toBe(state.branches[1]);
+  
+  // Simulate first PR being merged - call rebase
+  await stackManager.rebaseStack(1);
+  
+  // Verify state was updated
+  state = await stackManager.loadState();
+  expect(state.pullRequests).toEqual([2, 3]);
+  expect(state.branches.length).toBe(2);
+  
+  // Verify PR bases were updated after rebase
+  expect(mockGitHub.getPullRequestByNumber(2)?.base).toBe("main");
+  expect(mockGitHub.getPullRequestByNumber(3)?.base).toBe(state.branches[0]);
+  
+  // Simulate second PR being merged
+  await stackManager.rebaseStack(2);
+  
+  // Verify final state
+  state = await stackManager.loadState();
+  expect(state.pullRequests).toEqual([3]);
+  expect(state.branches.length).toBe(1);
+  expect(mockGitHub.getPullRequestByNumber(3)?.base).toBe("main");
 });

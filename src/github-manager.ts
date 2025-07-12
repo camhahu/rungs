@@ -107,6 +107,14 @@ export class GitHubManager {
     }
   }
 
+  async updatePullRequestBase(prNumber: number, newBase: string): Promise<void> {
+    try {
+      await Bun.$`gh pr edit ${prNumber} --base ${newBase}`;
+    } catch (error) {
+      throw new Error(`Failed to update pull request #${prNumber} base to ${newBase}: ${error}`);
+    }
+  }
+
   async getPullRequest(branchName: string): Promise<PullRequest | null> {
     try {
       const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,draft,headRefName,baseRefName`.text();
