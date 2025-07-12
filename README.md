@@ -28,11 +28,11 @@ git commit -m "Add user authentication"
 git commit -m "Add password validation"
 
 # Create your first stack! 🎉
-rungs push
+rungs stack
 
-# Make another commit and push again
+# Make another commit and stack again
 git commit -m "Add login form"
-rungs push
+rungs stack
 
 # Check your stacks
 rungs status
@@ -47,7 +47,7 @@ rungs status
 
 ### Stacked Diffs Solution ✨
 1. **Make incremental commits** on your main branch
-2. **Create stacks** - each `rungs push` creates a PR with new commits
+2. **Create stacks** - each `rungs stack` creates a PR with new commits
 3. **Independent review** - each PR can be reviewed and merged separately
 4. **Automatic cleanup** - when PRs merge, rungs updates everything automatically
 
@@ -55,26 +55,26 @@ rungs status
 ```bash
 git commit -m "Add user model"           # Commit A
 git commit -m "Add authentication API"   # Commit B
-rungs push                               # → PR #1 (A + B)
+rungs stack                              # → PR #1 (A + B)
 
 git commit -m "Add login UI"             # Commit C  
 git commit -m "Add error handling"       # Commit D
-rungs push                               # → PR #2 (C + D)
+rungs stack                              # → PR #2 (C + D)
 
 git commit -m "Add user dashboard"       # Commit E
-rungs push                               # → PR #3 (E)
+rungs stack                              # → PR #3 (E)
 ```
 
 **Result**: Three focused, reviewable PRs instead of one massive PR! 🎊
 
 ## 🛠️ Commands
 
-### `rungs push` 
+### `rungs stack` 
 🚀 Create a new stack with your latest commits
 ```bash
-rungs push                    # Create stack with new commits
-rungs push --auto-publish     # Create as published (not draft)
-rungs push --force            # Push even if behind remote
+rungs stack                   # Create stack with new commits
+rungs stack --auto-publish    # Create as published (not draft)
+rungs stack --force           # Stack even if behind remote
 ```
 
 ### `rungs status`
