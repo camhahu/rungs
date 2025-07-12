@@ -104,6 +104,8 @@ rungs merge 123 --merge      # Merge commit
 rungs merge 123 --rebase     # Rebase merge
 ```
 
+> **Testing Fix A**: First test of the fixed stacking behavior
+
 ### `rungs config`
 ⚙️ Manage configuration
 ```bash

@@ -1056,12 +1056,32 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
   }
   async mergePullRequest(prNumber, mergeMethod = "squash", deleteBranch = true) {
     await this.ensurePrerequisites();
+    const currentStack = await this.getCurrentStack();
     if (!prNumber) {
-      const currentStack = await this.getCurrentStack();
       if (currentStack.prs.length === 0) {
         throw new Error("No PRs found in current stack");
       }
       prNumber = currentStack.prs[currentStack.prs.length - 1].number;
+    }
+    const prBeingMerged = currentStack.prs.find((pr) => pr.number === prNumber);
+    if (prBeingMerged && deleteBranch) {
+      const dependentPRs = currentStack.prs.filter((pr) => pr.baseRefName === prBeingMerged.headRefName && pr.number !== prNumber);
+      if (dependentPRs.length > 0) {
+        startGroup(`Pre-merge stack updates`, "github");
+        logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
+        for (const dependentPR of dependentPRs) {
+          const prIndex = currentStack.prs.findIndex((pr) => pr.number === dependentPR.number);
+          const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : await this.config.get("defaultBranch");
+          try {
+            logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.baseRefName} -> ${newBase}`, 1);
+            await this.github.updatePullRequestBase(dependentPR.number, newBase);
+            logSuccess(`Pre-updated PR #${dependentPR.number} base to avoid auto-closure`, 1);
+          } catch (error) {
+            logWarning(`Could not pre-update PR #${dependentPR.number} base: ${error}`, 1);
+          }
+        }
+        endGroup();
+      }
     }
     logInfo(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
     await this.github.mergePullRequest(prNumber, mergeMethod, deleteBranch);
