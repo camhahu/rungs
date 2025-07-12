@@ -105,6 +105,8 @@ rungs merge 123 --rebase     # Rebase merge
 ```
 
 > **Testing Fix A**: First test of the fixed stacking behavior
+> **Testing Fix B**: Second test of the fixed stacking behavior
+> **Final Fix Test A**: Testing with the corrected base branch logic
 
 ### `rungs config`
 ⚙️ Manage configuration
