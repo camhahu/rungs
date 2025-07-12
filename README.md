@@ -512,3 +512,7 @@ Built with [Bun](https://bun.sh) for fast, modern JavaScript runtime and [GitHub
 ---
 
 **Happy stacking! 🥞**
+
+## 🚧 Development Status
+
+Rungs is under active development. Current features are stable and tested through dogfooding on this repository itself. All development work uses rungs to create and manage PRs, ensuring real-world testing of every feature.
