@@ -15,6 +15,7 @@ Break down large features into reviewable chunks! Create multiple independent pu
 
 > **Note**: This section includes commit A changes for testing stacking workflow.
 > **First Change**: Testing commit A
+> **Second Change**: Testing commit B
 ```bash
 git clone https://github.com/camhahu/rungs.git
 cd rungs
