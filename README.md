@@ -23,6 +23,17 @@ rungs config set userPrefix john
 rungs config list
 ```
 
+## How It Works
+
+Rungs implements a stacked diffs workflow:
+
+1. **Make commits** on your main branch
+2. **Run `rungs push`** to create a PR with those commits
+3. **Continue working** - make more commits on main
+4. **Run `rungs push` again** to create a new PR with just the new commits
+
+Each PR is independent and can be reviewed/merged separately, creating a natural stacked workflow.
+
 ## Commands
 
 - `rungs push` - Create a new stack or add commits to existing stack
