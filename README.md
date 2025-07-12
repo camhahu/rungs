@@ -129,7 +129,7 @@ rungs config get userPrefix          # Get a setting
 
 - 🎯 **Focused Reviews** - Each PR contains logically related changes
 - 🚀 **Parallel Development** - Work on new features while others are in review
-- 🔧 **Easy Maintenance** - Automatic stack cleanup when PRs are merged
+- 🔧 **Easy Maintenance** - Automatic stack cleanup and rebase when PRs are merged
 - 📈 **Better Velocity** - Merge parts of features as they're ready
 - 🔄 **Always Current** - Auto-syncs with GitHub on every command
 

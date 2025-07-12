@@ -158,6 +158,15 @@ export class GitManager {
     }
   }
 
+  async getCommitHash(ref: string): Promise<string> {
+    try {
+      const result = await Bun.$`git rev-parse ${ref}`.text();
+      return result.trim();
+    } catch (error) {
+      throw new Error(`Failed to get commit hash for ${ref}: ${error}`);
+    }
+  }
+
   async getCommitMessage(hash: string): Promise<string> {
     try {
       const result = await Bun.$`git log -1 --pretty=format:"%s" ${hash}`.text();
