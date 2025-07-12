@@ -48,23 +48,25 @@ export class GitHubManager {
     draft: boolean = true
   ): Promise<PullRequest> {
     try {
+      // Create the PR first
       let cmd = `gh pr create --title "${title}" --body "${body}" --head "${head}" --base "${base}"`;
       if (draft) {
         cmd += " --draft";
       }
-      cmd += " --json number,title,body,url,draft,headRefName,baseRefName";
       
-      const result = await Bun.$`${cmd}`.text();
+      const prUrl = await Bun.$`${cmd}`.text();
       
-      const data = JSON.parse(result);
+      // Extract PR number from URL
+      const prNumber = parseInt(prUrl.trim().split('/').pop() || '0');
+      
       return {
-        number: data.number,
-        title: data.title,
-        body: data.body,
-        url: data.url,
-        draft: data.draft,
-        head: data.headRefName,
-        base: data.baseRefName
+        number: prNumber,
+        title,
+        body,
+        url: prUrl.trim(),
+        draft,
+        head,
+        base
       };
     } catch (error) {
       throw new Error(`Failed to create pull request: ${error}`);
