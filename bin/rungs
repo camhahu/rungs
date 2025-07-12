@@ -1021,7 +1021,7 @@ class StackManager {
       { label: "Pull Request", value: `#${pr.number}` },
       { label: "URL", value: pr.url }
     ]);
-    logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs push' again for additional commits.`);
+    logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs stack' again for additional commits.`);
   }
   async getStatus() {
     await this.ensurePrerequisites();
@@ -1070,9 +1070,12 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
         startGroup(`Pre-merge stack updates`, "github");
         logInfo(`Found ${dependentPRs.length} dependent PRs that need base updates before merge`);
         for (const dependentPR of dependentPRs) {
+          console.log("DEBUG dependentPR:", JSON.stringify(dependentPR, null, 2));
+          console.log("DEBUG currentStack.prs:", JSON.stringify(currentStack.prs, null, 2));
           const prIndex = currentStack.prs.findIndex((pr) => pr.number === dependentPR.number);
           const config = await this.config.getAll();
           const newBase = prIndex > 0 ? currentStack.prs[prIndex - 1].headRefName : config.defaultBranch;
+          console.log("DEBUG prIndex:", prIndex, "newBase:", newBase, "config.defaultBranch:", config.defaultBranch);
           try {
             logProgress(`Updating PR #${dependentPR.number}: ${dependentPR.baseRefName} -> ${newBase}`, 1);
             await this.github.updatePullRequestBase(dependentPR.number, newBase);
