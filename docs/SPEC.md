@@ -146,7 +146,7 @@ Will manually sync with remote changes.
 
 ## Configuration
 
-### Configuration File: `~/.rungs/config.json`
+### Configuration File: `~/.config/rungs/config.json`
 
 ```json
 {
@@ -223,8 +223,8 @@ Will manually sync with remote changes.
 - Bun runtime environment
 
 ### File System Interactions
-- Read/write `~/.rungs/config.json` configuration file
-- Read `.rungs-state.json` for stack state
+- Read/write `~/.config/rungs/config.json` configuration file
+- Read/write `~/.config/rungs/{owner}/{repo}/state.json` for stack state per repository
 - Create temporary branch references
 - Read Git history and commit information
 
@@ -305,9 +305,9 @@ rungs status
 - Support GitHub Enterprise via `gh` configuration
 
 ### State Management
-- Track stack state in `.rungs-state.json`
+- Track stack state in `~/.config/rungs/{owner}/{repo}/state.json`
 - Maintain branch-to-PR mapping
 - Sync with GitHub to keep state current
-- Simple configuration in `~/.rungs/config.json`
+- Simple configuration in `~/.config/rungs/config.json`
 
 This specification reflects the current implemented functionality of the rungs CLI tool, focusing on the core workflow of creating stacked PRs with automatic GitHub synchronization and stack maintenance.

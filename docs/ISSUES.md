@@ -3,8 +3,8 @@
 This document tracks all work items needed to implement the rungs CLI project.
 
 BUGS:
-- --auto-publish option does not work for the rungs stack command. The PR is still in draft mode after it is created.
-- rungs creates its state files in the directory it is run from.
+- [FIXED] --auto-publish option does not work for the rungs stack command. The PR is still in draft mode after it is created.
+- [FIXED] rungs creates its state files in the directory it is run from.
   - rungs should create any state in the user's home directory, under .config/rungs/<state>
   - rungs will need to have state for each local repository it is ran from
   - rungs should bias for using state from the github server, not local state. Unless local state makes rungs noticably faster to the user. 
