@@ -125,6 +125,79 @@ class GitManager {
       throw new Error(`Failed to get commit message for ${hash}: ${error}`);
     }
   }
+  async getSyncStatus(remoteBranch) {
+    try {
+      await this.fetchOrigin();
+      const remoteRef = `origin/${remoteBranch}`;
+      try {
+        await Bun.$`git rev-parse --verify ${remoteRef}`.quiet();
+      } catch {
+        return {
+          status: "clean",
+          aheadCount: 0,
+          behindCount: 0,
+          localCommits: [],
+          remoteCommits: []
+        };
+      }
+      const aheadResult = await Bun.$`git rev-list --count ${remoteRef}..HEAD`.text();
+      const aheadCount = parseInt(aheadResult.trim()) || 0;
+      const behindResult = await Bun.$`git rev-list --count HEAD..${remoteRef}`.text();
+      const behindCount = parseInt(behindResult.trim()) || 0;
+      let localCommits = [];
+      let remoteCommits = [];
+      if (aheadCount > 0) {
+        const localResult = await Bun.$`git rev-list ${remoteRef}..HEAD`.text();
+        localCommits = localResult.trim().split(`
+`).filter(Boolean);
+      }
+      if (behindCount > 0) {
+        const remoteResult = await Bun.$`git rev-list HEAD..${remoteRef}`.text();
+        remoteCommits = remoteResult.trim().split(`
+`).filter(Boolean);
+      }
+      let status;
+      if (aheadCount === 0 && behindCount === 0) {
+        status = "clean";
+      } else if (aheadCount > 0 && behindCount === 0) {
+        status = "ahead";
+      } else if (aheadCount === 0 && behindCount > 0) {
+        status = "behind";
+      } else {
+        status = "diverged";
+      }
+      return {
+        status,
+        aheadCount,
+        behindCount,
+        localCommits,
+        remoteCommits
+      };
+    } catch (error) {
+      throw new Error(`Failed to check sync status with ${remoteBranch}: ${error}`);
+    }
+  }
+  async detectDuplicateCommits(remoteBranch) {
+    try {
+      const remoteRef = `origin/${remoteBranch}`;
+      const localResult = await Bun.$`git log ${remoteRef}..HEAD --pretty=format:"%s"`.text();
+      const localMessages = localResult.trim().split(`
+`).filter(Boolean);
+      if (localMessages.length === 0) {
+        return { hasDuplicates: false, duplicateMessages: [] };
+      }
+      const remoteResult = await Bun.$`git log ${remoteRef} --pretty=format:"%s" -20`.text();
+      const recentRemoteMessages = remoteResult.trim().split(`
+`).filter(Boolean);
+      const duplicates = localMessages.filter((msg) => recentRemoteMessages.some((remoteMsg) => remoteMsg.trim() === msg.trim()));
+      return {
+        hasDuplicates: duplicates.length > 0,
+        duplicateMessages: duplicates
+      };
+    } catch (error) {
+      throw new Error(`Failed to detect duplicate commits: ${error}`);
+    }
+  }
   generateBranchName(commits, userPrefix, strategy) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     switch (strategy) {
@@ -800,7 +873,7 @@ class StackManager {
     await this.syncWithGitHub();
     console.log("Stack state updated successfully!");
   }
-  async pushStack(autoPublish = false) {
+  async pushStack(autoPublish = false, force = false) {
     await this.ensurePrerequisites();
     const config = await this.config.getAll();
     const currentBranch = await this.git.getCurrentBranch();
@@ -810,6 +883,9 @@ class StackManager {
     const status = await this.git.getStatus();
     if (!status.isClean) {
       throw new Error("Working directory is not clean. Please commit or stash changes.");
+    }
+    if (!force) {
+      await this.validateSyncStatus(config.defaultBranch);
     }
     if (config.autoRebase) {
       startGroup("Fetching Latest Changes", "git");
@@ -969,6 +1045,97 @@ ${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
     await this.saveState(newState);
     console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
   }
+  async validateSyncStatus(defaultBranch) {
+    startGroup("Validating Sync Status", "git");
+    try {
+      logProgress("Checking sync status with remote...");
+      const syncResult = await this.git.getSyncStatus(defaultBranch);
+      if (syncResult.status === "clean") {
+        logSuccess("Local branch is in sync with remote");
+        endGroup();
+        return;
+      }
+      const duplicateCheck = await this.git.detectDuplicateCommits(defaultBranch);
+      let errorMessage = `\u274C Cannot create PR: Local branch is out of sync with remote
+
+`;
+      switch (syncResult.status) {
+        case "ahead":
+          if (duplicateCheck.hasDuplicates) {
+            errorMessage += `Your local ${defaultBranch} has ${syncResult.aheadCount} commits that may already be merged into remote.
+`;
+            errorMessage += `Duplicate commit messages found:
+${duplicateCheck.duplicateMessages.map((msg) => `  - ${msg}`).join(`
+`)}
+
+`;
+            errorMessage += `This would create a PR with merge conflicts.
+
+`;
+            errorMessage += `To resolve:
+`;
+            errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote state
+`;
+            errorMessage += `  git cherry-pick <specific-commits>         # Re-apply only new commits
+
+`;
+            errorMessage += `Or:
+`;
+            errorMessage += `  git rebase origin/${defaultBranch}         # Rebase on top of remote
+
+`;
+          } else {
+            errorMessage += `Your local ${defaultBranch} is ${syncResult.aheadCount} commits ahead of remote.
+`;
+            errorMessage += `This means you have local commits that haven't been pushed.
+
+`;
+            errorMessage += `To resolve:
+`;
+            errorMessage += `  git push origin ${defaultBranch}           # Push your changes first
+
+`;
+          }
+          break;
+        case "behind":
+          errorMessage += `Your local ${defaultBranch} is ${syncResult.behindCount} commits behind remote.
+`;
+          errorMessage += `To resolve:
+`;
+          errorMessage += `  git pull origin ${defaultBranch}            # Pull latest changes
+
+`;
+          break;
+        case "diverged":
+          errorMessage += `Your local ${defaultBranch} has diverged from remote:
+`;
+          errorMessage += `  - ${syncResult.aheadCount} commits ahead
+`;
+          errorMessage += `  - ${syncResult.behindCount} commits behind
+
+`;
+          errorMessage += `To resolve:
+`;
+          errorMessage += `  git rebase origin/${defaultBranch}          # Rebase your changes on top
+`;
+          errorMessage += `Or:
+`;
+          errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote (loses local changes)
+
+`;
+          break;
+      }
+      errorMessage += "Use --force to create PR anyway (not recommended)";
+      endGroup();
+      throw new Error(errorMessage);
+    } catch (error) {
+      endGroup();
+      if (error instanceof Error && error.message.includes("Cannot create PR")) {
+        throw error;
+      }
+      throw new Error(`Failed to validate sync status: ${error}`);
+    }
+  }
   async publishPullRequest(prNumber) {
     await this.ensurePrerequisites();
     if (!prNumber) {
@@ -1006,7 +1173,8 @@ async function main() {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
         verbose: { type: "boolean", short: "v" },
-        "auto-publish": { type: "boolean" }
+        "auto-publish": { type: "boolean" },
+        force: { type: "boolean", short: "f" }
       },
       allowPositionals: true
     });
@@ -1080,11 +1248,13 @@ OPTIONS:
   -h, --help         Show help information
   -c, --config PATH  Specify config file path
   -v, --verbose      Enable verbose output
+  -f, --force        Force operation, bypassing safety checks
       --auto-publish Create PRs as published instead of draft
 
 EXAMPLES:
   rungs push                       # Create/update stack with current commits
   rungs push --auto-publish        # Create PRs as published instead of draft
+  rungs push --force               # Create PRs even if local is out of sync
   rungs publish 123                # Mark PR #123 as ready for review
   rungs publish                    # Mark top PR in stack as ready for review
   rungs status                     # Show current stack status
@@ -1096,7 +1266,7 @@ For more information, visit: https://github.com/camhahu/rungs
 }
 async function handlePush(stack, args, options) {
   output.startSection("Push Stack Operation", "stack");
-  await stack.pushStack(options.autoPublish);
+  await stack.pushStack(options.autoPublish, options.force);
   output.success("Stack operation completed successfully!");
   output.endSection();
 }

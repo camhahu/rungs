@@ -218,7 +218,7 @@ export class StackManager {
     console.log("Stack state updated successfully!");
   }
 
-  async pushStack(autoPublish: boolean = false): Promise<void> {
+  async pushStack(autoPublish: boolean = false, force: boolean = false): Promise<void> {
     await this.ensurePrerequisites();
 
     const config = await this.config.getAll();
@@ -233,6 +233,11 @@ export class StackManager {
     const status = await this.git.getStatus();
     if (!status.isClean) {
       throw new Error("Working directory is not clean. Please commit or stash changes.");
+    }
+
+    // Sync validation (unless forced)
+    if (!force) {
+      await this.validateSyncStatus(config.defaultBranch);
     }
 
     // Fetch and rebase if configured
@@ -446,6 +451,74 @@ Stack Status:
     await this.saveState(newState);
 
     console.log(`Removed merged PR #${mergedPrNumber} and updated stack bases`);
+  }
+
+  private async validateSyncStatus(defaultBranch: string): Promise<void> {
+    startGroup("Validating Sync Status", "git");
+    
+    try {
+      logProgress("Checking sync status with remote...");
+      const syncResult = await this.git.getSyncStatus(defaultBranch);
+      
+      if (syncResult.status === "clean") {
+        logSuccess("Local branch is in sync with remote");
+        endGroup();
+        return;
+      }
+      
+      // Check for duplicate commits (merged commits that appear both locally and remotely)
+      const duplicateCheck = await this.git.detectDuplicateCommits(defaultBranch);
+      
+      let errorMessage = "❌ Cannot create PR: Local branch is out of sync with remote\n\n";
+      
+      switch (syncResult.status) {
+        case "ahead":
+          if (duplicateCheck.hasDuplicates) {
+            errorMessage += `Your local ${defaultBranch} has ${syncResult.aheadCount} commits that may already be merged into remote.\n`;
+            errorMessage += `Duplicate commit messages found:\n${duplicateCheck.duplicateMessages.map(msg => `  - ${msg}`).join('\n')}\n\n`;
+            errorMessage += "This would create a PR with merge conflicts.\n\n";
+            errorMessage += "To resolve:\n";
+            errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote state\n`;
+            errorMessage += `  git cherry-pick <specific-commits>         # Re-apply only new commits\n\n`;
+            errorMessage += "Or:\n";
+            errorMessage += `  git rebase origin/${defaultBranch}         # Rebase on top of remote\n\n`;
+          } else {
+            errorMessage += `Your local ${defaultBranch} is ${syncResult.aheadCount} commits ahead of remote.\n`;
+            errorMessage += "This means you have local commits that haven't been pushed.\n\n";
+            errorMessage += "To resolve:\n";
+            errorMessage += `  git push origin ${defaultBranch}           # Push your changes first\n\n`;
+          }
+          break;
+          
+        case "behind":
+          errorMessage += `Your local ${defaultBranch} is ${syncResult.behindCount} commits behind remote.\n`;
+          errorMessage += "To resolve:\n";
+          errorMessage += `  git pull origin ${defaultBranch}            # Pull latest changes\n\n`;
+          break;
+          
+        case "diverged":
+          errorMessage += `Your local ${defaultBranch} has diverged from remote:\n`;
+          errorMessage += `  - ${syncResult.aheadCount} commits ahead\n`;
+          errorMessage += `  - ${syncResult.behindCount} commits behind\n\n`;
+          errorMessage += "To resolve:\n";
+          errorMessage += `  git rebase origin/${defaultBranch}          # Rebase your changes on top\n`;
+          errorMessage += "Or:\n";
+          errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote (loses local changes)\n\n`;
+          break;
+      }
+      
+      errorMessage += "Use --force to create PR anyway (not recommended)";
+      
+      endGroup();
+      throw new Error(errorMessage);
+      
+    } catch (error) {
+      endGroup();
+      if (error instanceof Error && error.message.includes("Cannot create PR")) {
+        throw error; // Re-throw sync validation errors as-is
+      }
+      throw new Error(`Failed to validate sync status: ${error}`);
+    }
   }
 
   async publishPullRequest(prNumber?: number): Promise<void> {

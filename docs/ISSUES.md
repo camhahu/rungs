@@ -23,6 +23,11 @@ This document tracks all work items needed to implement the rungs CLI project.
   - Draft/ready mode handling
   - Force push and conflict resolution
   - Multi-stack PR linking
+  - **Sync validation**: Pre-flight checks to prevent creating PRs when local is out of sync
+    - Detects ahead/behind/diverged scenarios
+    - Identifies duplicate commits (already merged)
+    - Provides clear resolution guidance
+    - --force flag to bypass when needed
 
 - [ ] **rungs sync Command**
   - Remote main branch synchronization
@@ -264,11 +269,16 @@ This document tracks all work items needed to implement the rungs CLI project.
 - [ ] **Self-development testing** - Continuous validation through actual usage
 
 ### Current Dogfooding Issues (2025-12-07)
-- [ ] **rungs push PR creation failure** - `rungs push` fails with unhelpful error "Failed to create pull request: ShellError: Failed with exit code 1"
-  - Need better error handling and user-friendly messages
-  - Should debug the underlying gh CLI failure and show actual error
-  - Error occurred when trying to create PR for auto-rebase fix commit
-  - Should gracefully handle long branch names or other edge cases
+- [x] **rungs push PR creation failure** - `rungs push` fails with unhelpful error "Failed to create pull request: ShellError: Failed with exit code 1"
+  - ✅ Fixed: Added better error handling and user-friendly messages
+  - ✅ Fixed: Added branch name length validation (63 char GitHub limit)
+  - ✅ Fixed: Improved error reporting with actual GitHub CLI errors
+
+- [ ] **rungs push should prevent unmergeable PRs** - `rungs push` should not create PRs when local is out of sync with remote
+  - Need proper sync checking before creating PRs
+  - Should detect when local main has diverged from origin/main  
+  - Should require user to sync (rebase/pull) before creating PRs
+  - Prevent creating PRs that will have immediate merge conflicts
 
 ---
 
