@@ -97,6 +97,7 @@ export class StackManager {
       try {
         await Bun.$`git rev-parse --verify origin/${config.defaultBranch}`;
         baseRef = `origin/${config.defaultBranch}`;
+        console.log(`Using origin branch as base: ${baseRef}`);
       } catch {
         // Origin branch doesn't exist, get all commits on current branch
         // Find the root commit or use a reasonable base
