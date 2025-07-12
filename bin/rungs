@@ -228,14 +228,31 @@ class GitHubManager {
   }
   async getPullRequest(branchName) {
     try {
-      const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,draft,headRefName,baseRefName`.text();
+      const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,isDraft,headRefName,baseRefName`.text();
       const data = JSON.parse(result);
       return {
         number: data.number,
         title: data.title,
         body: data.body,
         url: data.url,
-        draft: data.draft,
+        draft: data.isDraft,
+        head: data.headRefName,
+        base: data.baseRefName
+      };
+    } catch {
+      return null;
+    }
+  }
+  async getPullRequestByNumber(prNumber) {
+    try {
+      const result = await Bun.$`gh pr view ${prNumber} --json number,title,body,url,isDraft,headRefName,baseRefName`.text();
+      const data = JSON.parse(result);
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body,
+        url: data.url,
+        draft: data.isDraft,
         head: data.headRefName,
         base: data.baseRefName
       };
@@ -407,15 +424,28 @@ class StackManager {
     if (state.pullRequests.length === 0) {
       return;
     }
+    const config = await this.config.getAll();
     const activePRs = [];
     const activeBranches = [];
     const mergedPRs = [];
+    const needsRebase = [];
     for (let i = 0;i < state.pullRequests.length; i++) {
       const prNumber = state.pullRequests[i];
       const branchName = state.branches[i];
       try {
         const status = await this.github.getPullRequestStatus(prNumber);
         if (status === "open") {
+          const prDetails = await this.github.getPullRequestByNumber(prNumber);
+          const expectedBase = i === 0 ? config.defaultBranch : state.branches[i - 1];
+          console.log(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`);
+          if (prDetails && prDetails.base !== expectedBase) {
+            const baseExists = await this.branchExistsOnGitHub(prDetails.base);
+            console.log(`Base branch "${prDetails.base}" exists: ${baseExists}`);
+            if (!baseExists || prDetails.base !== expectedBase) {
+              console.log(`Adding PR #${prNumber} to rebase queue`);
+              needsRebase.push({ prNumber, branchName, correctBase: expectedBase });
+            }
+          }
           activePRs.push(prNumber);
           activeBranches.push(branchName);
         } else if (status === "merged") {
@@ -428,6 +458,9 @@ class StackManager {
     if (mergedPRs.length > 0 && activePRs.length > 0) {
       await this.autoRebaseAfterMerges(activePRs, activeBranches);
     }
+    if (needsRebase.length > 0) {
+      await this.fixIncorrectBases(needsRebase);
+    }
     const syncedState = {
       ...state,
       pullRequests: activePRs,
@@ -436,76 +469,36 @@ class StackManager {
     };
     await this.saveState(syncedState);
   }
-  async autoRebaseAfterMerges(activePRs, activeBranches) {
-    for (let i = 0;i < activePRs.length; i++) {
-      const prNumber = activePRs[i];
-      const newBase = i === 0 ? "main" : activeBranches[i - 1];
+  async branchExistsOnGitHub(branchName) {
+    try {
+      await Bun.$`gh api repos/:owner/:repo/branches/${branchName}`.quiet();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async fixIncorrectBases(needsRebase) {
+    console.log(`Fixing base branches for ${needsRebase.length} PRs with incorrect bases...`);
+    for (const { prNumber, branchName, correctBase } of needsRebase) {
       try {
-        await this.github.updatePullRequestBase(prNumber, newBase);
+        console.log(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`);
+        await this.github.updatePullRequestBase(prNumber, correctBase);
       } catch (error) {
         console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
       }
     }
-    await this.syncWithGitHub();
-  }
-  async syncWithGitHub() {
-    const state = await this.loadState();
-    if (state.pullRequests.length === 0) {
-      return;
-    }
-    const activePRs = [];
-    const activeBranches = [];
-    const mergedPRs = [];
-    for (let i = 0;i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const branchName = state.branches[i];
-      try {
-        const status = await this.github.getPullRequestStatus(prNumber);
-        if (status === "open") {
-          activePRs.push(prNumber);
-          activeBranches.push(branchName);
-        } else if (status === "merged") {
-          mergedPRs.push(prNumber);
-        }
-      } catch (error) {
-        console.warn(`Warning: Could not check status of PR #${prNumber}, removing from tracking`);
-      }
-    }
-    if (mergedPRs.length > 0 && activePRs.length > 0) {
-      await this.autoRebaseAfterMerges(activePRs, activeBranches);
-    }
-    const syncedState = {
-      ...state,
-      pullRequests: activePRs,
-      branches: activeBranches,
-      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
-    };
-    await this.saveState(syncedState);
   }
   async autoRebaseAfterMerges(activePRs, activeBranches) {
     const config = await this.config.getAll();
-    const currentBranch = await this.git.getCurrentBranch();
-    try {
-      await this.git.fetchOrigin();
-      for (let i = 0;i < activeBranches.length; i++) {
-        const branchName = activeBranches[i];
-        const prNumber = activePRs[i];
-        const newBase = i === 0 ? `origin/${config.defaultBranch}` : activeBranches[i - 1];
-        try {
-          await this.git.checkoutBranch(branchName);
-          await this.git.rebaseOnto(newBase);
-          await this.git.pushBranch(branchName, true);
-          const githubBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
-          await this.github.updatePullRequestBase(prNumber, githubBase);
-        } catch (error) {
-          console.warn(`Warning: Could not rebase branch ${branchName}: ${error}`);
-        }
-      }
-    } finally {
+    console.log(`Auto-rebasing ${activePRs.length} PRs after merge...`);
+    for (let i = 0;i < activePRs.length; i++) {
+      const prNumber = activePRs[i];
+      const newBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
       try {
-        await this.git.checkoutBranch(currentBranch);
+        console.log(`Updating PR #${prNumber} base to ${newBase}`);
+        await this.github.updatePullRequestBase(prNumber, newBase);
       } catch (error) {
-        console.warn(`Warning: Could not return to branch ${currentBranch}: ${error}`);
+        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
       }
     }
   }

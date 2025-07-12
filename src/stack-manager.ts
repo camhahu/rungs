@@ -46,11 +46,13 @@ export class StackManager {
       return; // Nothing to sync
     }
 
+    const config = await this.config.getAll();
     const activePRs: number[] = [];
     const activeBranches: string[] = [];
     const mergedPRs: number[] = [];
+    const needsRebase: { prNumber: number, branchName: string, correctBase: string }[] = [];
     
-    // Check each PR's current status on GitHub
+    // Check each PR's current status and base on GitHub
     for (let i = 0; i < state.pullRequests.length; i++) {
       const prNumber = state.pullRequests[i];
       const branchName = state.branches[i];
@@ -59,7 +61,22 @@ export class StackManager {
         const status = await this.github.getPullRequestStatus(prNumber);
         
         if (status === "open") {
-          // PR is still active, keep it
+          // PR is still active, check if its base is correct
+          const prDetails = await this.github.getPullRequestByNumber(prNumber);
+          const expectedBase = i === 0 ? config.defaultBranch : state.branches[i - 1];
+          
+          console.log(`PR #${prNumber}: current base="${prDetails?.base}", expected base="${expectedBase}"`);
+          
+          if (prDetails && prDetails.base !== expectedBase) {
+            // Check if the current base branch exists or was merged/deleted
+            const baseExists = await this.branchExistsOnGitHub(prDetails.base);
+            console.log(`Base branch "${prDetails.base}" exists: ${baseExists}`);
+            if (!baseExists || prDetails.base !== expectedBase) {
+              console.log(`Adding PR #${prNumber} to rebase queue`);
+              needsRebase.push({ prNumber, branchName, correctBase: expectedBase });
+            }
+          }
+          
           activePRs.push(prNumber);
           activeBranches.push(branchName);
         } else if (status === "merged") {
@@ -73,9 +90,14 @@ export class StackManager {
       }
     }
     
-    // If we have merged PRs and remaining active PRs, automatically rebase
+    // If we have merged PRs and remaining active PRs, automatically fix bases
     if (mergedPRs.length > 0 && activePRs.length > 0) {
       await this.autoRebaseAfterMerges(activePRs, activeBranches);
+    }
+    
+    // Fix any PRs that have incorrect bases
+    if (needsRebase.length > 0) {
+      await this.fixIncorrectBases(needsRebase);
     }
     
     // Update state with only active PRs
@@ -90,113 +112,43 @@ export class StackManager {
     await this.saveState(syncedState);
   }
 
-  private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
-    // Update base branches for remaining PRs
-    for (let i = 0; i < activePRs.length; i++) {
-      const prNumber = activePRs[i];
-      const newBase = i === 0 ? "main" : activeBranches[i - 1];
-      
+  private async branchExistsOnGitHub(branchName: string): Promise<boolean> {
+    try {
+      // Check if the branch exists on the remote
+      await Bun.$`gh api repos/:owner/:repo/branches/${branchName}`.quiet();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async fixIncorrectBases(needsRebase: { prNumber: number, branchName: string, correctBase: string }[]): Promise<void> {
+    console.log(`Fixing base branches for ${needsRebase.length} PRs with incorrect bases...`);
+    
+    for (const { prNumber, branchName, correctBase } of needsRebase) {
       try {
-        await this.github.updatePullRequestBase(prNumber, newBase);
+        console.log(`Updating PR #${prNumber} (${branchName}) base to ${correctBase}`);
+        await this.github.updatePullRequestBase(prNumber, correctBase);
       } catch (error) {
         console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
       }
     }
-
-    // Always sync with GitHub to ensure state is current
-    await this.syncWithGitHub();
-  }
-
-  async syncWithGitHub(): Promise<void> {
-    const state = await this.loadState();
-    
-    if (state.pullRequests.length === 0) {
-      return; // Nothing to sync
-    }
-
-    const activePRs: number[] = [];
-    const activeBranches: string[] = [];
-    const mergedPRs: number[] = [];
-    
-    // Check each PR's current status on GitHub
-    for (let i = 0; i < state.pullRequests.length; i++) {
-      const prNumber = state.pullRequests[i];
-      const branchName = state.branches[i];
-      
-      try {
-        const status = await this.github.getPullRequestStatus(prNumber);
-        
-        if (status === "open") {
-          // PR is still active, keep it
-          activePRs.push(prNumber);
-          activeBranches.push(branchName);
-        } else if (status === "merged") {
-          // Track merged PRs for automatic rebasing
-          mergedPRs.push(prNumber);
-        }
-        // If status is "closed" (not merged), just remove from tracking
-      } catch (error) {
-        // If we can't check the PR status, assume it's gone
-        console.warn(`Warning: Could not check status of PR #${prNumber}, removing from tracking`);
-      }
-    }
-    
-    // If we have merged PRs and remaining active PRs, automatically rebase
-    if (mergedPRs.length > 0 && activePRs.length > 0) {
-      await this.autoRebaseAfterMerges(activePRs, activeBranches);
-    }
-    
-    // Update state with only active PRs
-    const syncedState: StackState = {
-      ...state,
-      pullRequests: activePRs,
-      branches: activeBranches,
-      lastBranch: activeBranches.length > 0 ? activeBranches[activeBranches.length - 1] : undefined
-    };
-    
-    // Save the synced state
-    await this.saveState(syncedState);
   }
 
   private async autoRebaseAfterMerges(activePRs: number[], activeBranches: string[]): Promise<void> {
     const config = await this.config.getAll();
-    const currentBranch = await this.git.getCurrentBranch();
+    console.log(`Auto-rebasing ${activePRs.length} PRs after merge...`);
     
-    try {
-      // Fetch latest changes from remote
-      await this.git.fetchOrigin();
+    // Update base branches for remaining PRs
+    for (let i = 0; i < activePRs.length; i++) {
+      const prNumber = activePRs[i];
+      const newBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
       
-      // Rebase each remaining branch onto its new base
-      for (let i = 0; i < activeBranches.length; i++) {
-        const branchName = activeBranches[i];
-        const prNumber = activePRs[i];
-        const newBase = i === 0 ? `origin/${config.defaultBranch}` : activeBranches[i - 1];
-        
-        try {
-          // Switch to the branch
-          await this.git.checkoutBranch(branchName);
-          
-          // Rebase onto the new base
-          await this.git.rebaseOnto(newBase);
-          
-          // Force push the rebased branch
-          await this.git.pushBranch(branchName, true);
-          
-          // Update GitHub PR base reference
-          const githubBase = i === 0 ? config.defaultBranch : activeBranches[i - 1];
-          await this.github.updatePullRequestBase(prNumber, githubBase);
-          
-        } catch (error) {
-          console.warn(`Warning: Could not rebase branch ${branchName}: ${error}`);
-        }
-      }
-      
-    } finally {
-      // Always return to the original branch
       try {
-        await this.git.checkoutBranch(currentBranch);
+        console.log(`Updating PR #${prNumber} base to ${newBase}`);
+        await this.github.updatePullRequestBase(prNumber, newBase);
       } catch (error) {
-        console.warn(`Warning: Could not return to branch ${currentBranch}: ${error}`);
+        console.warn(`Warning: Could not update base for PR #${prNumber}: ${error}`);
       }
     }
   }
