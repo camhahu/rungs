@@ -183,7 +183,16 @@ export class GitManager {
           .replace(/^-|-$/g, '')
           .slice(0, 50);
         
-        return `${userPrefix}/${cleanMessage}`;
+        const fullBranchName = `${userPrefix}/${cleanMessage}`;
+        
+        // GitHub branch names must be 63 characters or less
+        if (fullBranchName.length > 63) {
+          const availableLength = 63 - userPrefix.length - 1; // -1 for the slash
+          const truncatedMessage = cleanMessage.slice(0, availableLength);
+          return `${userPrefix}/${truncatedMessage}`;
+        }
+        
+        return fullBranchName;
     }
   }
 }

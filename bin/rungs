@@ -139,7 +139,13 @@ class GitManager {
         }
         const firstCommit = commits[0];
         const cleanMessage = firstCommit.message.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-        return `${userPrefix}/${cleanMessage}`;
+        const fullBranchName = `${userPrefix}/${cleanMessage}`;
+        if (fullBranchName.length > 63) {
+          const availableLength = 63 - userPrefix.length - 1;
+          const truncatedMessage = cleanMessage.slice(0, availableLength);
+          return `${userPrefix}/${truncatedMessage}`;
+        }
+        return fullBranchName;
     }
   }
 }
@@ -200,7 +206,20 @@ class GitHubManager {
         } catch {}
       }
     } catch (error) {
-      throw new Error(`Failed to create pull request: ${error}`);
+      let errorMessage = "Failed to create pull request";
+      if (error.stderr) {
+        errorMessage += `: ${error.stderr.toString().trim()}`;
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      } else {
+        errorMessage += `: ${error}`;
+      }
+      if (error.stderr?.includes("remote ref does not exist") || head.length > 63) {
+        errorMessage += `
+
+Hint: Branch name may be too long. GitHub branch names must be 63 characters or less.`;
+      }
+      throw new Error(errorMessage);
     }
   }
   async updatePullRequest(prNumber, title, body) {

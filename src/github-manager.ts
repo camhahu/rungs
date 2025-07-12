@@ -80,8 +80,24 @@ export class GitHubManager {
           // Ignore cleanup errors
         }
       }
-    } catch (error) {
-      throw new Error(`Failed to create pull request: ${error}`);
+    } catch (error: any) {
+      // Extract meaningful error information
+      let errorMessage = "Failed to create pull request";
+      
+      if (error.stderr) {
+        errorMessage += `: ${error.stderr.toString().trim()}`;
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      } else {
+        errorMessage += `: ${error}`;
+      }
+      
+      // Add helpful context for common issues
+      if (error.stderr?.includes("remote ref does not exist") || head.length > 63) {
+        errorMessage += "\n\nHint: Branch name may be too long. GitHub branch names must be 63 characters or less.";
+      }
+      
+      throw new Error(errorMessage);
     }
   }
 
