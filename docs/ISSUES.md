@@ -41,6 +41,8 @@ This document tracks all work items needed to implement the rungs CLI project.
   - Stack maintenance after PR merges
   - Base branch updates for dependent PRs
   - State cleanup for merged PRs
+  - **Bug fixes**: Fixed infinite recursion and incorrect base detection
+  - **Comprehensive test coverage**: Added regression tests for edge cases
 
 - [x] **rungs config Command**
   - Configuration key-value management
@@ -256,7 +258,7 @@ This document tracks all work items needed to implement the rungs CLI project.
 ## Development Workflow
 
 ### Dogfooding Implementation
-- [x] **Auto-rebase functionality** - Implemented for seamless PR merge handling
+- [x] **Auto-rebase functionality** - Implemented with bug fixes for infinite recursion and incorrect base detection, includes comprehensive test coverage
 - [ ] **Dogfooding development workflow** - Use rungs for its own development
 - [ ] **Integration testing framework** - Real-world scenario testing
 - [ ] **Self-development testing** - Continuous validation through actual usage

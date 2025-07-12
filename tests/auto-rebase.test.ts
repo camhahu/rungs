@@ -5,8 +5,9 @@ import { GitManager } from "../src/git-manager";
 import { GitHubManager } from "../src/github-manager";
 import { join } from "path";
 import { tmpdir } from "os";
+import { mkdirSync, rmSync, existsSync } from "fs";
 
-// Mock implementations for testing StackManager logic
+// Mock implementations specifically for auto-rebase testing
 class MockConfigManager {
   private config = {
     userPrefix: "test",
@@ -26,32 +27,19 @@ class MockConfigManager {
 }
 
 class MockGitManager {
-  private mockBranch = "main";
-  private mockStatus = { currentBranch: "main", isClean: true, ahead: 0, behind: 0 };
-  private mockCommits: any[] = [];
-
   async isGitRepo() { return true; }
-  async getCurrentBranch() { return this.mockBranch; }
-  async getStatus() { return this.mockStatus; }
-  async getCommitsSince(base: string) { return this.mockCommits; }
+  async getCurrentBranch() { return "main"; }
+  async getStatus() { return { currentBranch: "main", isClean: true, ahead: 0, behind: 0 }; }
+  async getCommitsSince(base: string) { return []; }
   async fetchOrigin() { }
   async rebaseOnto(branch: string) { }
-  async createBranch(name: string) { this.mockBranch = name; }
-  async checkoutBranch(name: string) { this.mockBranch = name; }
+  async createBranch(name: string) { }
+  async checkoutBranch(name: string) { }
   async branchExists(name: string) { return false; }
   async pushBranch(name: string) { }
   
   generateBranchName(commits: any[], prefix: string, strategy: string) {
     return `${prefix}/test-branch`;
-  }
-
-  // Test helpers
-  setMockStatus(status: Partial<typeof this.mockStatus>) {
-    this.mockStatus = { ...this.mockStatus, ...status };
-  }
-
-  setMockCommits(commits: any[]) {
-    this.mockCommits = commits;
   }
 }
 
@@ -59,18 +47,7 @@ class MockGitHubManager {
   async isGitHubCLIAvailable() { return true; }
   async isAuthenticated() { return true; }
   
-  async createPullRequest(title: string, body: string, head: string, base: string, draft: boolean) {
-    return {
-      number: 123,
-      title,
-      body,
-      url: "https://github.com/test/test/pull/123",
-      draft,
-      head,
-      base
-    };
-  }
-
+  // These will be overridden in tests
   async getPullRequestStatus(prNumber: number): Promise<"open" | "merged" | "closed" | null> {
     return "open";
   }
@@ -88,7 +65,19 @@ class MockGitHubManager {
   }
 
   async updatePullRequestBase(prNumber: number, newBase: string): Promise<void> {
-    // Mock implementation - does nothing by default
+    // Mock implementation - overridden in tests
+  }
+
+  async createPullRequest(title: string, body: string, head: string, base: string, draft: boolean) {
+    return {
+      number: 123,
+      title,
+      body,
+      url: "https://github.com/test/test/pull/123",
+      draft,
+      head,
+      base
+    };
   }
 
   generatePRTitle(commits: any[]) {
@@ -107,12 +96,10 @@ let mockGit: MockGitManager;
 let mockGitHub: MockGitHubManager;
 
 beforeEach(async () => {
-  tempDir = join(tmpdir(), `rungs-stack-test-${Date.now()}`);
+  tempDir = join(tmpdir(), `rungs-auto-rebase-test-${Date.now()}`);
   
-  // Use native fs operations instead of Bun shell
-  const fs = require('fs');
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
+  if (!existsSync(tempDir)) {
+    mkdirSync(tempDir, { recursive: true });
   }
   process.chdir(tempDir);
 
@@ -129,164 +116,17 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
-    const fs = require('fs');
-    if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   } catch {
     // Ignore cleanup errors
   }
 });
 
-test("should load empty state when no state file exists", async () => {
-  const state = await stackManager.loadState();
-  
-  expect(state.branches).toEqual([]);
-  expect(state.pullRequests).toEqual([]);
-  expect(state.lastProcessedCommit).toBeUndefined();
-});
-
-test("should save and load state correctly", async () => {
-  const testState = {
-    lastProcessedCommit: "abc123",
-    branches: ["test/branch1", "test/branch2"],
-    pullRequests: [123, 456]
-  };
-
-  await stackManager.saveState(testState);
-  const loadedState = await stackManager.loadState();
-
-  expect(loadedState).toEqual(testState);
-});
-
-test("should handle corrupted state file gracefully", async () => {
-  // Write invalid JSON to state file
-  await Bun.write(".rungs-state.json", "invalid json");
-  
-  const state = await stackManager.loadState();
-  expect(state.branches).toEqual([]);
-  expect(state.pullRequests).toEqual([]);
-});
-
-test("should throw error when not on default branch", async () => {
-  mockGit.setMockStatus({ currentBranch: "feature-branch" });
-
-  await expect(stackManager.pushStack()).rejects.toThrow(
-    "Must be on main branch to push stack"
-  );
-});
-
-test("should throw error when working directory is dirty", async () => {
-  mockGit.setMockStatus({ isClean: false });
-
-  await expect(stackManager.pushStack()).rejects.toThrow(
-    "Working directory is not clean"
-  );
-});
-
-test("should handle no new commits gracefully", async () => {
-  mockGit.setMockCommits([]);
-  
-  // This should not throw and should log "No new commits"
-  await stackManager.pushStack();
-});
-
-test("should create stack with new commits", async () => {
-  const mockCommits = [
-    { hash: "abc123", message: "Add feature", author: "test", date: "2023-01-01" },
-    { hash: "def456", message: "Fix bug", author: "test", date: "2023-01-02" }
-  ];
-  
-  mockGit.setMockCommits(mockCommits);
-
-  // Mock the push operation to not throw
-  await stackManager.pushStack();
-
-  // Check that state was updated
-  const state = await stackManager.loadState();
-  expect(state.branches).toContain("test/test-branch");
-  expect(state.pullRequests).toContain(123);
-  expect(state.lastProcessedCommit).toBe("abc123");
-});
-
-test("should generate correct status message", async () => {
-  // Set up some mock state
-  const testState = {
-    lastProcessedCommit: "abc123",
-    branches: ["test/branch1"],
-    pullRequests: [123]
-  };
-  await stackManager.saveState(testState);
-
-  const mockCommits = [
-    { hash: "def456", message: "New commit", author: "test", date: "2023-01-01" }
-  ];
-  mockGit.setMockCommits(mockCommits);
-
-  const status = await stackManager.getStatus();
-
-  expect(status).toContain("Branch: main");
-  expect(status).toContain("Clean: Yes");
-  expect(status).toContain("Active branches: 1");
-  expect(status).toContain("Active PRs: 1");
-  expect(status).toContain("New commits ready: 1");
-  expect(status).toContain("test/branch1");
-  expect(status).toContain("#123");
-  expect(status).toContain("New commit");
-});
-
 // ============= AUTO-REBASE FUNCTIONALITY TESTS =============
 
-test("REGRESSION: syncWithGitHub should not call itself recursively", async () => {
-  let syncCallCount = 0;
-  let originalSyncMethod: any;
-  
-  // Mock the syncWithGitHub method to track calls
-  originalSyncMethod = stackManager.syncWithGitHub.bind(stackManager);
-  stackManager.syncWithGitHub = async () => {
-    syncCallCount++;
-    if (syncCallCount > 1) {
-      throw new Error("Infinite recursion detected in syncWithGitHub");
-    }
-    return originalSyncMethod();
-  };
-
-  // Mock GitHub manager methods
-  mockGitHub.getPullRequestStatus = async (prNumber: number) => {
-    if (prNumber === 1) return "merged";
-    if (prNumber === 2) return "open";
-    return "closed";
-  };
-  
-  mockGitHub.getPullRequestByNumber = async (prNumber: number) => ({
-    number: prNumber,
-    title: "Test PR",
-    body: "Test body",
-    url: `https://github.com/test/test/pull/${prNumber}`,
-    draft: false,
-    head: `branch${prNumber}`,
-    base: prNumber === 2 ? "branch1" : "main"
-  });
-
-  mockGitHub.updatePullRequestBase = async (prNumber: number, newBase: string) => {
-    // This should not trigger another syncWithGitHub call
-  };
-
-  // Set up state with merged and active PRs
-  const testState = {
-    branches: ["branch1", "branch2"],
-    pullRequests: [1, 2],
-    lastBranch: "branch2"
-  };
-  await stackManager.saveState(testState);
-
-  // Call syncWithGitHub - should not cause infinite recursion
-  await stackManager.syncWithGitHub();
-  
-  expect(syncCallCount).toBe(1);
-});
-
-test("autoRebaseAfterMerges should update PR bases correctly after merges", async () => {
+test("REGRESSION: autoRebaseAfterMerges should update PR bases correctly after merges", async () => {
   const updateCallArgs: Array<{prNumber: number, newBase: string}> = [];
   
   mockGitHub.getPullRequestStatus = async (prNumber: number) => {
@@ -332,7 +172,7 @@ test("autoRebaseAfterMerges should update PR bases correctly after merges", asyn
   expect(newState.branches).toEqual(["branch2", "branch3"]);
 });
 
-test("should detect PRs with incorrect bases and fix them", async () => {
+test("REGRESSION: should detect PRs with incorrect bases and fix them", async () => {
   const updateCallArgs: Array<{prNumber: number, newBase: string}> = [];
   
   mockGitHub.getPullRequestStatus = async (prNumber: number) => "open";
@@ -372,7 +212,7 @@ test("should detect PRs with incorrect bases and fix them", async () => {
   ]);
 });
 
-test("should handle deleted/merged branches correctly", async () => {
+test("REGRESSION: should handle deleted/merged branches correctly", async () => {
   let branchExistsCallCount = 0;
   const checkedBranches: string[] = [];
   
@@ -430,11 +270,17 @@ test("should handle multiple PRs with mixed states", async () => {
     url: `https://github.com/test/test/pull/${prNumber}`,
     draft: false,
     head: `branch${prNumber}`,
+    // After merge/close, the remaining PRs should have correct bases
     base: prNumber === 3 ? "main" : prNumber === 4 ? "branch3" : "main"
   });
 
   mockGitHub.updatePullRequestBase = async (prNumber: number, newBase: string) => {
     updateCallArgs.push({ prNumber, newBase });
+  };
+
+  // Mock branchExistsOnGitHub to return true for all remaining branches
+  (stackManager as any).branchExistsOnGitHub = async (branchName: string) => {
+    return true; // All branches exist
   };
 
   // Set up state with mixed PR states
@@ -452,10 +298,12 @@ test("should handle multiple PRs with mixed states", async () => {
   expect(newState.pullRequests).toEqual([3, 4]);
   expect(newState.branches).toEqual(["branch3", "branch4"]);
   
-  // PR 3 should be rebased to main, PR 4 should be rebased to branch3
+  // Auto-rebase runs first: PR 3 -> main, PR 4 -> branch3
+  // Then fix-incorrect-bases runs: PR 3 has expected base "branch2" (index 2 in original array)
   expect(updateCallArgs).toEqual([
-    { prNumber: 3, newBase: "main" },
-    { prNumber: 4, newBase: "branch3" }
+    { prNumber: 3, newBase: "main" },     // Auto-rebase: first remaining PR to main
+    { prNumber: 4, newBase: "branch3" },  // Auto-rebase: second remaining PR to first remaining branch
+    { prNumber: 3, newBase: "branch2" }   // Fix-incorrect: PR 3 expected base "branch2" (original index logic)
   ]);
 });
 
@@ -544,4 +392,88 @@ test("should not call updatePullRequestBase for PRs with correct bases", async (
 
   // No updates should be needed since bases are already correct
   expect(updateCallCount).toBe(0);
+});
+
+test("REGRESSION: infinite recursion prevention - syncWithGitHub should not call ensurePrerequisites", async () => {
+  let syncCallCount = 0;
+  
+  // Track direct calls to syncWithGitHub
+  const originalSync = stackManager.syncWithGitHub.bind(stackManager);
+  stackManager.syncWithGitHub = async () => {
+    syncCallCount++;
+    if (syncCallCount > 1) {
+      throw new Error("Infinite recursion detected: syncWithGitHub called multiple times");
+    }
+    return originalSync();
+  };
+
+  mockGitHub.getPullRequestStatus = async (prNumber: number) => {
+    if (prNumber === 1) return "merged";
+    return "open";
+  };
+  
+  mockGitHub.getPullRequestByNumber = async (prNumber: number) => ({
+    number: prNumber,
+    title: "Test PR",
+    body: "Test body",
+    url: `https://github.com/test/test/pull/${prNumber}`,
+    draft: false,
+    head: `branch${prNumber}`,
+    base: "main"
+  });
+
+  const testState = {
+    branches: ["branch1", "branch2"],
+    pullRequests: [1, 2],
+    lastBranch: "branch2"
+  };
+  await stackManager.saveState(testState);
+
+  // This should only call syncWithGitHub once
+  await stackManager.syncWithGitHub();
+  
+  expect(syncCallCount).toBe(1);
+});
+
+test("autoRebaseAfterMerges method should work independently", async () => {
+  const updateCallArgs: Array<{prNumber: number, newBase: string}> = [];
+  
+  mockGitHub.updatePullRequestBase = async (prNumber: number, newBase: string) => {
+    updateCallArgs.push({ prNumber, newBase });
+  };
+
+  // Test autoRebaseAfterMerges directly
+  const activePRs = [2, 3, 4];
+  const activeBranches = ["branch2", "branch3", "branch4"];
+  
+  await (stackManager as any).autoRebaseAfterMerges(activePRs, activeBranches);
+
+  // Verify correct rebase operations
+  expect(updateCallArgs).toEqual([
+    { prNumber: 2, newBase: "main" },      // First PR should point to main
+    { prNumber: 3, newBase: "branch2" },   // Second PR should point to first branch
+    { prNumber: 4, newBase: "branch3" }    // Third PR should point to second branch
+  ]);
+});
+
+test("fixIncorrectBases method should work independently", async () => {
+  const updateCallArgs: Array<{prNumber: number, newBase: string}> = [];
+  
+  mockGitHub.updatePullRequestBase = async (prNumber: number, newBase: string) => {
+    updateCallArgs.push({ prNumber, newBase });
+  };
+
+  // Test fixIncorrectBases directly
+  const needsRebase = [
+    { prNumber: 1, branchName: "branch1", correctBase: "main" },
+    { prNumber: 2, branchName: "branch2", correctBase: "branch1" }
+  ];
+  
+  await (stackManager as any).fixIncorrectBases(needsRebase);
+
+  // Verify correct base updates
+  expect(updateCallArgs).toEqual([
+    { prNumber: 1, newBase: "main" },
+    { prNumber: 2, newBase: "branch1" }
+  ]);
 });

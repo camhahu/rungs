@@ -117,7 +117,7 @@ export class GitHubManager {
 
   async getPullRequest(branchName: string): Promise<PullRequest | null> {
     try {
-      const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,draft,headRefName,baseRefName`.text();
+      const result = await Bun.$`gh pr view ${branchName} --json number,title,body,url,isDraft,headRefName,baseRefName`.text();
       const data = JSON.parse(result);
       
       return {
@@ -125,7 +125,27 @@ export class GitHubManager {
         title: data.title,
         body: data.body,
         url: data.url,
-        draft: data.draft,
+        draft: data.isDraft,
+        head: data.headRefName,
+        base: data.baseRefName
+      };
+    } catch {
+      // PR doesn't exist
+      return null;
+    }
+  }
+
+  async getPullRequestByNumber(prNumber: number): Promise<PullRequest | null> {
+    try {
+      const result = await Bun.$`gh pr view ${prNumber} --json number,title,body,url,isDraft,headRefName,baseRefName`.text();
+      const data = JSON.parse(result);
+      
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body,
+        url: data.url,
+        draft: data.isDraft,
         head: data.headRefName,
         base: data.baseRefName
       };

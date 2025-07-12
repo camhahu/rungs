@@ -71,6 +71,37 @@ rungs config --reset
 - `rungs config <key>` - Get specific configuration value
 - `rungs config <key> <value>` - Set configuration value
 
+#### `rungs merge [pr-number]`
+Merge PRs through rungs and automatically handle stack cleanup.
+
+```bash
+rungs merge [pr-number] [options]
+```
+
+**Behavior:**
+- If no pr-number provided, merge the top PR in the current stack
+- Merge the specified PR on GitHub 
+- Automatically trigger stack cleanup (same as `rungs status` does)
+- Update remaining PRs in the stack with correct base branches
+- Remove merged PR from local state tracking
+- Handle both squash and merge commit scenarios
+
+**Options:**
+- `--squash` - Use squash merge (default)
+- `--merge` - Use regular merge
+- `--rebase` - Use rebase merge
+- `--delete-branch` - Delete the branch after merge (default: true)
+
+**Examples:**
+```bash
+rungs merge              # Merge top PR in current stack
+rungs merge 42           # Merge specific PR #42
+rungs merge --merge      # Use merge commit instead of squash
+rungs merge --no-delete-branch  # Keep branch after merge
+```
+
+**Integration:** This command uses the same auto-rebase logic to ensure proper stack maintenance.
+
 ### Planned Commands
 
 #### `rungs init` *(Not Yet Implemented)*
@@ -98,6 +129,8 @@ Will manually sync with remote changes.
 - **GitHub Sync**: Every command automatically syncs with GitHub
 - **Merged PR Detection**: Automatically detects when PRs are merged
 - **Automatic Rebase**: When merged PRs are detected, stack is automatically rebased
+- **Enhanced Base Detection**: Detects PRs with incorrect bases (pointing to merged/deleted branches)
+- **Robust Error Handling**: Prevents infinite recursion and handles edge cases gracefully
 - **No Manual Rebase**: No separate `rungs rebase` command needed
 
 ### Simple Stack Detection
@@ -143,7 +176,9 @@ Will manually sync with remote changes.
 ### Automatic Actions
 - **Merged PR Detection**: Automatically identifies merged PRs
 - **Stack Rebase**: Automatically rebases remaining PRs when merges detected
+- **Base Branch Correction**: Automatically fixes PRs pointing to merged/deleted branches
 - **State Updates**: Updates local state to match GitHub reality
+- **Comprehensive Testing**: Extensive test coverage ensures reliability
 
 ## Error Handling
 
