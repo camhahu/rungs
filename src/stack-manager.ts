@@ -520,6 +520,19 @@ Stack Status (from GitHub):
       }
     }
 
+    // CRITICAL: Capture commit hash BEFORE merge for squash merge restacking
+    let oldBaseCommit: string | undefined;
+    if (prBeingMerged && deleteBranch && mergeMethod === "squash") {
+      const dependentPRs = currentStack.prs.filter(pr =>
+        pr.base === prBeingMerged.head && pr.number !== prNumber
+      );
+
+      if (dependentPRs.length > 0) {
+        // Capture the commit hash of the parent branch BEFORE it gets deleted
+        oldBaseCommit = await this.git.getCommitHash(`origin/${prBeingMerged.head}`);
+      }
+    }
+
     logInfo(`Merging PR #${prNumber} using ${mergeMethod} merge...`);
 
     // Merge the PR
@@ -528,7 +541,7 @@ Stack Status (from GitHub):
     logSuccess(`✅ Successfully merged PR #${prNumber}`);
 
     // CRITICAL: After squash merge, restack dependent branches to remove duplicate commits
-    if (prBeingMerged && deleteBranch && mergeMethod === "squash") {
+    if (prBeingMerged && deleteBranch && mergeMethod === "squash" && oldBaseCommit) {
       const dependentPRs = currentStack.prs.filter(pr =>
         pr.base === prBeingMerged.head && pr.number !== prNumber
       );
@@ -538,7 +551,7 @@ Stack Status (from GitHub):
         const prBeingMergedIndex = currentStack.prs.findIndex(pr => pr.number === prNumber);
         const newBase = prBeingMergedIndex > 0 ? currentStack.prs[prBeingMergedIndex - 1].head : config.defaultBranch;
         
-        await this.restackDependents(dependentPRs, prBeingMerged.head, newBase);
+        await this.restackDependents(dependentPRs, oldBaseCommit, newBase);
       }
     }
 
@@ -568,7 +581,7 @@ Stack Status (from GitHub):
    */
   private async restackDependents(
     dependentPRs: StackPR[],
-    oldBase: string,
+    oldBaseCommit: string,
     newBase: string
   ): Promise<void> {
     if (dependentPRs.length === 0) {
@@ -588,12 +601,11 @@ Stack Status (from GitHub):
           // Checkout the dependent branch
           await this.git.checkoutBranch(pr.head);
           
-          // Fetch latest state of both old and new bases
+          // Fetch latest state of new base (oldBaseCommit is already a commit hash, no need to fetch)
           await this.git.fetchBranch(newBase);
-          await this.git.fetchBranch(oldBase);
           
           // Rebase --onto to remove duplicate commits
-          await this.git.rebaseOntoTarget(`origin/${newBase}`, `origin/${oldBase}`);
+          await this.git.rebaseOntoTarget(`origin/${newBase}`, oldBaseCommit);
           
           // Force push the rebased branch
           await this.git.pushForceWithLease(pr.head);
