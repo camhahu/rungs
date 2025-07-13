@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import { OperationTracker } from "../src/operation-tracker.js";
 import { output, setOutputMode } from "../src/output-manager.js";
 
