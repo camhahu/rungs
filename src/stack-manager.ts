@@ -105,9 +105,17 @@ export class StackManager {
           const stackBranches = fixedPRs.map(pr => pr.headRefName);
           const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
 
+          // CRITICAL FIX: Deduplicate commits by SHA to prevent double-counting
+          const prCommitHashes = new Set(prsWithCommits.flatMap(pr => 
+            pr.commits?.map(c => c.hash) || []
+          ));
+          const deduplicatedUnstacked = unstakedCommits.filter(commit => 
+            !prCommitHashes.has(commit.hash)
+          );
+
           const stackState: StackState = {
             prs: prsWithCommits,
-            unstakedCommits,
+            unstakedCommits: deduplicatedUnstacked,
             lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
           };
 
@@ -171,9 +179,17 @@ export class StackManager {
         const stackBranches = fixedPRs.map(pr => pr.headRefName);
         const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
 
+        // CRITICAL FIX: Deduplicate commits by SHA to prevent double-counting
+        const prCommitHashes = new Set(prsWithCommits.flatMap(pr => 
+          pr.commits?.map(c => c.hash) || []
+        ));
+        const deduplicatedUnstacked = unstakedCommits.filter(commit => 
+          !prCommitHashes.has(commit.hash)
+        );
+
         const stackState: StackState = {
           prs: prsWithCommits,
-          unstakedCommits,
+          unstakedCommits: deduplicatedUnstacked,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
 
