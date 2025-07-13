@@ -1,5 +1,6 @@
 import { join } from "path";
 import { homedir } from "os";
+import { OutputMode, SpinnerStyle } from "./output-manager.js";
 
 export interface RungsConfig {
   userPrefix: string;
@@ -7,6 +8,15 @@ export interface RungsConfig {
   draftPRs: boolean;
   autoRebase: boolean;
   branchNaming: "commit-message" | "sequential" | "timestamp";
+  output: {
+    mode: OutputMode;
+    verboseOnError: boolean;
+    spinnerStyle: SpinnerStyle;
+    colorScheme: 'auto' | 'light' | 'dark' | 'none';
+    maxLineLength: number;
+    showTimestamps: boolean;
+    showElapsedTime: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: RungsConfig = {
@@ -14,7 +24,16 @@ const DEFAULT_CONFIG: RungsConfig = {
   defaultBranch: "main",
   draftPRs: true,
   autoRebase: true,
-  branchNaming: "commit-message"
+  branchNaming: "commit-message",
+  output: {
+    mode: "compact",
+    verboseOnError: true,
+    spinnerStyle: "dots",
+    colorScheme: "auto",
+    maxLineLength: 80,
+    showTimestamps: false,
+    showElapsedTime: false
+  }
 };
 
 export class ConfigManager {

@@ -549,7 +549,16 @@ var DEFAULT_CONFIG = {
   defaultBranch: "main",
   draftPRs: true,
   autoRebase: true,
-  branchNaming: "commit-message"
+  branchNaming: "commit-message",
+  output: {
+    mode: "compact",
+    verboseOnError: true,
+    spinnerStyle: "dots",
+    colorScheme: "auto",
+    maxLineLength: 80,
+    showTimestamps: false,
+    showElapsedTime: false
+  }
 };
 
 class ConfigManager {
@@ -613,11 +622,355 @@ class ConfigManager {
   }
 }
 
+// src/ansi-utils.ts
+class AnsiUtils {
+  static ESCAPE_CODES = {
+    cursorUp: (lines) => `\x1B[${lines}A`,
+    cursorDown: (lines) => `\x1B[${lines}B`,
+    cursorForward: (cols) => `\x1B[${cols}C`,
+    cursorBack: (cols) => `\x1B[${cols}D`,
+    cursorToColumn: (col) => `\x1B[${col}G`,
+    cursorHome: "\x1B[H",
+    clearLine: "\x1B[2K",
+    clearLineAfter: "\x1B[0K",
+    clearLineBefore: "\x1B[1K",
+    clearScreen: "\x1B[2J",
+    clearScreenAfter: "\x1B[0J",
+    clearScreenBefore: "\x1B[1J",
+    saveCursor: "\x1B[s",
+    restoreCursor: "\x1B[u",
+    bold: "\x1B[1m",
+    dim: "\x1B[2m",
+    italic: "\x1B[3m",
+    underline: "\x1B[4m",
+    blink: "\x1B[5m",
+    reverse: "\x1B[7m",
+    strikethrough: "\x1B[9m",
+    reset: "\x1B[0m",
+    colors: {
+      black: "\x1B[30m",
+      red: "\x1B[31m",
+      green: "\x1B[32m",
+      yellow: "\x1B[33m",
+      blue: "\x1B[34m",
+      magenta: "\x1B[35m",
+      cyan: "\x1B[36m",
+      white: "\x1B[37m",
+      gray: "\x1B[90m",
+      brightRed: "\x1B[91m",
+      brightGreen: "\x1B[92m",
+      brightYellow: "\x1B[93m",
+      brightBlue: "\x1B[94m",
+      brightMagenta: "\x1B[95m",
+      brightCyan: "\x1B[96m",
+      brightWhite: "\x1B[97m"
+    },
+    bgColors: {
+      black: "\x1B[40m",
+      red: "\x1B[41m",
+      green: "\x1B[42m",
+      yellow: "\x1B[43m",
+      blue: "\x1B[44m",
+      magenta: "\x1B[45m",
+      cyan: "\x1B[46m",
+      white: "\x1B[47m",
+      gray: "\x1B[100m",
+      brightRed: "\x1B[101m",
+      brightGreen: "\x1B[102m",
+      brightYellow: "\x1B[103m",
+      brightBlue: "\x1B[104m",
+      brightMagenta: "\x1B[105m",
+      brightCyan: "\x1B[106m",
+      brightWhite: "\x1B[107m"
+    }
+  };
+  static capabilities = null;
+  static getTerminalCapabilities() {
+    if (this.capabilities) {
+      return this.capabilities;
+    }
+    const isInteractive = Boolean(process.stdout.isTTY);
+    const supportsColors = isInteractive && !process.env.NO_COLOR && (process.env.COLORTERM === "truecolor" || process.env.TERM === "xterm-256color" || process.env.TERM === "screen-256color" || Boolean(process.env.FORCE_COLOR));
+    this.capabilities = {
+      supportsCursor: isInteractive,
+      supportsColors,
+      supportsUnicode: true,
+      isInteractive
+    };
+    return this.capabilities;
+  }
+  static isTerminalSupported() {
+    return this.getTerminalCapabilities().isInteractive;
+  }
+  static supportsColors() {
+    return this.getTerminalCapabilities().supportsColors;
+  }
+  static clearCurrentLine() {
+    if (this.isTerminalSupported()) {
+      process.stdout.write(this.ESCAPE_CODES.clearLine);
+    }
+  }
+  static moveCursorToStart() {
+    if (this.isTerminalSupported()) {
+      process.stdout.write(this.ESCAPE_CODES.cursorToColumn(1));
+    }
+  }
+  static replaceCurrentLine(text) {
+    if (this.isTerminalSupported()) {
+      this.clearCurrentLine();
+      this.moveCursorToStart();
+      process.stdout.write(text);
+    } else {
+      console.log(text);
+    }
+  }
+  static moveCursorUp(lines) {
+    if (this.isTerminalSupported() && lines > 0) {
+      process.stdout.write(this.ESCAPE_CODES.cursorUp(lines));
+    }
+  }
+  static moveCursorDown(lines) {
+    if (this.isTerminalSupported() && lines > 0) {
+      process.stdout.write(this.ESCAPE_CODES.cursorDown(lines));
+    }
+  }
+  static saveCursor() {
+    if (this.isTerminalSupported()) {
+      process.stdout.write(this.ESCAPE_CODES.saveCursor);
+    }
+  }
+  static restoreCursor() {
+    if (this.isTerminalSupported()) {
+      process.stdout.write(this.ESCAPE_CODES.restoreCursor);
+    }
+  }
+  static formatText(text, styles) {
+    if (!this.supportsColors() || styles.length === 0) {
+      return text;
+    }
+    const codes = [];
+    for (const style of styles) {
+      if (style in this.ESCAPE_CODES && typeof this.ESCAPE_CODES[style] === "string") {
+        codes.push(this.ESCAPE_CODES[style]);
+      } else if (style in this.ESCAPE_CODES.colors) {
+        codes.push(this.ESCAPE_CODES.colors[style]);
+      } else if (style in this.ESCAPE_CODES.bgColors) {
+        codes.push(this.ESCAPE_CODES.bgColors[style]);
+      }
+    }
+    if (codes.length === 0) {
+      return text;
+    }
+    return `${codes.join("")}${text}${this.ESCAPE_CODES.reset}`;
+  }
+  static colorize(text, color) {
+    return this.formatText(text, [color]);
+  }
+  static bold(text) {
+    return this.formatText(text, ["bold"]);
+  }
+  static italic(text) {
+    return this.formatText(text, ["italic"]);
+  }
+  static dim(text) {
+    return this.formatText(text, ["dim"]);
+  }
+  static underline(text) {
+    return this.formatText(text, ["underline"]);
+  }
+  static truncate(text, maxWidth, ellipsis = "...") {
+    if (text.length <= maxWidth) {
+      return text;
+    }
+    if (maxWidth <= ellipsis.length) {
+      return ellipsis.slice(0, maxWidth);
+    }
+    return text.slice(0, maxWidth - ellipsis.length) + ellipsis;
+  }
+  static pad(text, width, char = " ", align = "left") {
+    if (text.length >= width) {
+      return text;
+    }
+    const padding = width - text.length;
+    switch (align) {
+      case "right":
+        return char.repeat(padding) + text;
+      case "center":
+        const leftPad = Math.floor(padding / 2);
+        const rightPad = padding - leftPad;
+        return char.repeat(leftPad) + text + char.repeat(rightPad);
+      case "left":
+      default:
+        return text + char.repeat(padding);
+    }
+  }
+  static getTerminalWidth() {
+    return process.stdout.columns || 80;
+  }
+  static getTerminalHeight() {
+    return process.stdout.rows || 24;
+  }
+  static refreshCapabilities() {
+    this.capabilities = null;
+  }
+}
+
+// src/progress-indicator.ts
+class ProgressIndicator {
+  text;
+  options;
+  static SPINNERS = {
+    dots: ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"],
+    line: ["|", "/", "-", "\\"],
+    arrow: ["\u2190", "\u2196", "\u2191", "\u2197", "\u2192", "\u2198", "\u2193", "\u2199"],
+    clock: ["\uD83D\uDD50", "\uD83D\uDD51", "\uD83D\uDD52", "\uD83D\uDD53", "\uD83D\uDD54", "\uD83D\uDD55", "\uD83D\uDD56", "\uD83D\uDD57", "\uD83D\uDD58", "\uD83D\uDD59", "\uD83D\uDD5A", "\uD83D\uDD5B"],
+    none: [""]
+  };
+  intervalId;
+  currentFrame = 0;
+  isActive = false;
+  lastText = "";
+  constructor(text, options = {}) {
+    this.text = text;
+    this.options = options;
+    this.options = {
+      style: "dots",
+      color: "cyan",
+      interval: 80,
+      prefix: "",
+      suffix: "",
+      ...options
+    };
+  }
+  start() {
+    if (this.isActive) {
+      return;
+    }
+    this.isActive = true;
+    this.currentFrame = 0;
+    if (!AnsiUtils.isTerminalSupported()) {
+      const staticText = this.formatStaticText();
+      console.log(staticText);
+      return;
+    }
+    this.intervalId = setInterval(() => {
+      this.updateDisplay();
+    }, this.options.interval);
+    this.updateDisplay();
+  }
+  stop() {
+    if (!this.isActive) {
+      return;
+    }
+    this.isActive = false;
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = undefined;
+    }
+  }
+  updateText(text) {
+    this.text = text;
+    if (this.isActive && AnsiUtils.isTerminalSupported()) {
+      this.updateDisplay();
+    }
+  }
+  success(message, icon = "\u2705") {
+    this.stop();
+    const finalText = this.formatFinalText(message, icon, "green");
+    this.replaceOrPrint(finalText);
+  }
+  error(message, icon = "\u274C") {
+    this.stop();
+    const finalText = this.formatFinalText(message, icon, "red");
+    this.replaceOrPrint(finalText);
+  }
+  warn(message, icon = "\u26A0\uFE0F") {
+    this.stop();
+    const finalText = this.formatFinalText(message, icon, "yellow");
+    this.replaceOrPrint(finalText);
+  }
+  info(message, icon = "\u2139\uFE0F") {
+    this.stop();
+    const finalText = this.formatFinalText(message, icon, "blue");
+    this.replaceOrPrint(finalText);
+  }
+  isRunning() {
+    return this.isActive;
+  }
+  updateDisplay() {
+    const spinner = this.getCurrentSpinner();
+    const frames = ProgressIndicator.SPINNERS[this.options.style || "dots"];
+    const frame = frames[this.currentFrame % frames.length];
+    const displayText = this.formatDisplayText(frame);
+    if (AnsiUtils.isTerminalSupported()) {
+      AnsiUtils.replaceCurrentLine(displayText);
+    }
+    this.lastText = displayText;
+    this.currentFrame++;
+  }
+  getCurrentSpinner() {
+    return ProgressIndicator.SPINNERS[this.options.style || "dots"];
+  }
+  formatDisplayText(frame) {
+    const { prefix = "", suffix = "", color = "cyan" } = this.options;
+    let displayText = "";
+    if (prefix) {
+      displayText += prefix + " ";
+    }
+    if (frame && this.options.style !== "none") {
+      const coloredFrame = AnsiUtils.colorize(frame, color);
+      displayText += coloredFrame + " ";
+    }
+    displayText += this.text;
+    if (suffix) {
+      displayText += " " + suffix;
+    }
+    return displayText;
+  }
+  formatStaticText() {
+    const { prefix = "", suffix = "" } = this.options;
+    let displayText = "";
+    if (prefix) {
+      displayText += prefix + " ";
+    }
+    displayText += this.text;
+    if (suffix) {
+      displayText += " " + suffix;
+    }
+    return displayText;
+  }
+  formatFinalText(message, icon, color) {
+    const { prefix = "", suffix = "" } = this.options;
+    let displayText = "";
+    if (prefix) {
+      displayText += prefix + " ";
+    }
+    const coloredIcon = AnsiUtils.colorize(icon, color);
+    displayText += coloredIcon + " ";
+    displayText += AnsiUtils.formatText(message, ["bold"]);
+    if (suffix) {
+      displayText += " " + suffix;
+    }
+    return displayText;
+  }
+  replaceOrPrint(text) {
+    if (AnsiUtils.isTerminalSupported() && this.lastText) {
+      AnsiUtils.replaceCurrentLine(text);
+      console.log();
+    } else {
+      console.log(text);
+    }
+  }
+}
+
 // src/output-manager.ts
 class OutputManager {
   indentLevel = 0;
   currentSection = null;
   config;
+  activeOperations = new Map;
+  operationStack = [];
+  lastOutputWasCompact = false;
   static ICONS = {
     git: "\uD83D\uDD04",
     github: "\uD83D\uDCE4",
@@ -646,6 +999,10 @@ class OutputManager {
       showTimestamps: false,
       useColors: true,
       verboseMode: false,
+      outputMode: "compact",
+      spinnerStyle: "dots",
+      maxLineLength: 80,
+      showElapsedTime: false,
       ...config
     };
   }
@@ -672,11 +1029,21 @@ class OutputManager {
     this.currentSection = null;
     this.indentLevel = 0;
   }
-  log(message, level = "info", indent = 0) {
+  log(message, level = "info", indent = 0, options) {
+    if (this.config.outputMode === "compact" && this.lastOutputWasCompact) {
+      console.log();
+      this.lastOutputWasCompact = false;
+    }
     const icon = OutputManager.ICONS[level];
     const prefix = this.getPrefix(icon, level);
     const indentation = "  ".repeat(this.indentLevel + indent);
-    const formattedMessage = `${indentation}${prefix} ${message}`;
+    let formattedMessage = `${indentation}${prefix} ${message}`;
+    if (this.config.outputMode === "compact" && options?.truncate && this.config.maxLineLength > 0) {
+      const maxLength = this.config.maxLineLength - indentation.length - prefix.length - 1;
+      if (message.length > maxLength) {
+        formattedMessage = `${indentation}${prefix} ${AnsiUtils.truncate(message, maxLength)}`;
+      }
+    }
     console.log(this.colorize(formattedMessage, this.getLevelColor(level)));
   }
   progress(message, indent = 0) {
@@ -740,6 +1107,87 @@ class OutputManager {
   setVerbose(verbose) {
     this.config.verboseMode = verbose;
   }
+  setOutputMode(mode) {
+    this.config.outputMode = mode;
+  }
+  getOutputMode() {
+    return this.config.outputMode;
+  }
+  startOperation(id, message, type = "general") {
+    if (this.config.outputMode === "verbose") {
+      this.startGroup(message, type);
+      return;
+    }
+    this.completeOperation(id, "", "success");
+    const icon = OutputManager.ICONS[type];
+    const displayMessage = `${icon} ${message}`;
+    const progressIndicator = new ProgressIndicator(displayMessage, {
+      style: this.config.spinnerStyle,
+      color: this.getTypeColor(type)
+    });
+    this.activeOperations.set(id, progressIndicator);
+    this.operationStack.push(id);
+    progressIndicator.start();
+    this.lastOutputWasCompact = true;
+  }
+  updateOperation(id, message) {
+    if (this.config.outputMode === "verbose") {
+      this.progress(message);
+      return;
+    }
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      operation.updateText(message);
+    }
+  }
+  completeOperation(id, message, level = "success") {
+    if (this.config.outputMode === "verbose") {
+      if (message) {
+        this.log(message, level);
+      }
+      this.endGroup();
+      return;
+    }
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      const finalMessage = message || "Completed";
+      switch (level) {
+        case "success":
+          operation.success(finalMessage);
+          break;
+        case "error":
+          operation.error(finalMessage);
+          break;
+        case "warning":
+          operation.warn(finalMessage);
+          break;
+        case "info":
+          operation.info(finalMessage);
+          break;
+        default:
+          operation.success(finalMessage);
+      }
+      this.activeOperations.delete(id);
+      this.operationStack = this.operationStack.filter((opId) => opId !== id);
+    }
+  }
+  failOperation(id, message, error) {
+    if (this.config.outputMode === "verbose") {
+      this.error(message);
+      if (error) {
+        this.error(error, 1);
+      }
+      this.endGroup();
+      return;
+    }
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      const errorMessage = error ? `${message}: ${error}` : message;
+      operation.error(errorMessage);
+      this.activeOperations.delete(id);
+      this.operationStack = this.operationStack.filter((opId) => opId !== id);
+    }
+  }
   getPrefix(icon, level) {
     if (this.config.showTimestamps) {
       const timestamp = new Date().toLocaleTimeString();
@@ -760,6 +1208,21 @@ class OutputManager {
       case "info":
       default:
         return "reset";
+    }
+  }
+  getTypeColor(type) {
+    switch (type) {
+      case "git":
+        return "blue";
+      case "github":
+        return "magenta";
+      case "stack":
+        return "cyan";
+      case "config":
+        return "yellow";
+      case "general":
+      default:
+        return "white";
     }
   }
   colorize(text, color) {
@@ -797,6 +1260,9 @@ function logSummary(title, items) {
 }
 function setVerbose(verbose) {
   output.setVerbose(verbose);
+}
+function setOutputMode(mode) {
+  output.setOutputMode(mode);
 }
 
 // src/stack-manager.ts
@@ -1285,6 +1751,117 @@ ${duplicateCheck.duplicateMessages.map((msg) => `  - ${msg}`).join(`
   }
 }
 
+// src/operation-tracker.ts
+class OperationTracker {
+  output;
+  operationCounter = 0;
+  constructor(output2) {
+    this.output = output2;
+  }
+  async executeOperation(id, description, type, operation, options = {}) {
+    const startTime = Date.now();
+    try {
+      this.output.startOperation(id, description, type);
+      const result = await operation();
+      let successMessage = options.successMessage ? options.successMessage(result) : description;
+      if (options.showElapsed) {
+        const elapsed = Date.now() - startTime;
+        successMessage += ` (${elapsed}ms)`;
+      }
+      this.output.completeOperation(id, successMessage, "success");
+      return result;
+    } catch (error) {
+      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      this.output.failOperation(id, errorMessage, errorDetail);
+      throw error;
+    }
+  }
+  executeOperationSync(id, description, type, operation, options = {}) {
+    const startTime = Date.now();
+    try {
+      this.output.startOperation(id, description, type);
+      const result = operation();
+      let successMessage = options.successMessage ? options.successMessage(result) : description;
+      if (options.showElapsed) {
+        const elapsed = Date.now() - startTime;
+        successMessage += ` (${elapsed}ms)`;
+      }
+      this.output.completeOperation(id, successMessage, "success");
+      return result;
+    } catch (error) {
+      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      this.output.failOperation(id, errorMessage, errorDetail);
+      throw error;
+    }
+  }
+  createOperationId(prefix) {
+    return `${prefix}-${++this.operationCounter}-${Date.now()}`;
+  }
+  async gitOperation(description, operation, options = {}) {
+    const id = this.createOperationId("git");
+    return this.executeOperation(id, description, "git", operation, options);
+  }
+  async githubOperation(description, operation, options = {}) {
+    const id = this.createOperationId("github");
+    return this.executeOperation(id, description, "github", operation, options);
+  }
+  async stackOperation(description, operation, options = {}) {
+    const id = this.createOperationId("stack");
+    return this.executeOperation(id, description, "stack", operation, options);
+  }
+  async configOperation(description, operation, options = {}) {
+    const id = this.createOperationId("config");
+    return this.executeOperation(id, description, "config", operation, options);
+  }
+  async generalOperation(description, operation, options = {}) {
+    const id = this.createOperationId("general");
+    return this.executeOperation(id, description, "general", operation, options);
+  }
+  gitOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("git");
+    return this.executeOperationSync(id, description, "git", operation, options);
+  }
+  githubOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("github");
+    return this.executeOperationSync(id, description, "github", operation, options);
+  }
+  stackOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("stack");
+    return this.executeOperationSync(id, description, "stack", operation, options);
+  }
+  updateOperation(id, newDescription) {
+    this.output.updateOperation(id, newDescription);
+  }
+  startOperation(description, type = "general") {
+    const id = this.createOperationId(type);
+    this.output.startOperation(id, description, type);
+    return id;
+  }
+  completeOperation(id, message, level = "success") {
+    this.output.completeOperation(id, message || "Completed", level);
+  }
+  failOperation(id, message, error) {
+    this.output.failOperation(id, message, error);
+  }
+  async executeSequence(operations) {
+    const results = [];
+    for (const op of operations) {
+      const result = await this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {});
+      results.push(result);
+    }
+    return results;
+  }
+  async executeParallel(operations) {
+    const promises = operations.map((op) => this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {}));
+    return Promise.all(promises);
+  }
+  getOutputManager() {
+    return this.output;
+  }
+}
+
 // src/cli.ts
 var COMMANDS = {
   stack: "Create a new stack or add commits to existing stack",
@@ -1305,6 +1882,11 @@ async function main() {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
         verbose: { type: "boolean", short: "v" },
+        quiet: { type: "boolean", short: "q" },
+        compact: { type: "boolean" },
+        "output-mode": { type: "string" },
+        "no-color": { type: "boolean" },
+        "no-spinner": { type: "boolean" },
         "auto-publish": { type: "boolean" },
         force: { type: "boolean", short: "f" }
       },
@@ -1312,7 +1894,10 @@ async function main() {
     });
     const options = {
       ...values,
-      autoPublish: values["auto-publish"]
+      autoPublish: values["auto-publish"],
+      outputMode: values["output-mode"],
+      noColor: values["no-color"],
+      noSpinner: values["no-spinner"]
     };
     const [command, ...args] = positionals;
     if (options.help || !command || command === "help") {
@@ -1324,10 +1909,20 @@ async function main() {
       output.info("Run 'rungs help' for available commands.");
       process.exit(1);
     }
-    if (options.verbose) {
+    const config = new ConfigManager(options.config);
+    const userConfig = await config.getAll();
+    let outputMode = userConfig.output.mode;
+    if (options.quiet || options.compact) {
+      outputMode = "compact";
+    } else if (options.verbose) {
+      outputMode = "verbose";
+    } else if (options.outputMode) {
+      outputMode = options.outputMode;
+    }
+    setOutputMode(outputMode);
+    if (options.verbose || outputMode === "verbose") {
       setVerbose(true);
     }
-    const config = new ConfigManager(options.config);
     const git = new GitManager;
     const github = new GitHubManager;
     const stack = new StackManager(config, git, github);
@@ -1377,11 +1972,16 @@ ${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(12)} ${desc}`).j
 `)}
 
 OPTIONS:
-  -h, --help         Show help information
-  -c, --config PATH  Specify config file path
-  -v, --verbose      Enable verbose output
-  -f, --force        Force operation, bypassing safety checks
-      --auto-publish Create PRs as published instead of draft
+  -h, --help           Show help information
+  -c, --config PATH    Specify config file path
+  -v, --verbose        Enable verbose output mode
+  -q, --quiet          Enable compact output mode (same as --compact)
+      --compact        Enable compact output mode
+      --output-mode    Set output mode: 'verbose' or 'compact'
+      --no-color       Disable colored output
+      --no-spinner     Disable spinner animations
+  -f, --force          Force operation, bypassing safety checks
+      --auto-publish   Create PRs as published instead of draft
 
 EXAMPLES:
   rungs stack                      # Create/update stack with current commits
@@ -1403,10 +2003,27 @@ async function handlePush(stack, args, options) {
   output.endSection();
 }
 async function handleStatus(stack, options) {
-  output.startSection("Stack Status", "stack");
-  const status = await stack.getStatus();
-  console.log(status);
-  output.endSection();
+  const tracker = new OperationTracker(output);
+  try {
+    if (output.getOutputMode() === "verbose") {
+      output.startSection("Stack Status", "stack");
+      const status2 = await stack.getStatus();
+      console.log(status2);
+      output.endSection();
+      return;
+    }
+    const status = await tracker.stackOperation("Retrieving stack status", async () => {
+      return await stack.getStatus();
+    }, {
+      successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+      showElapsed: true
+    });
+    console.log(status);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    output.error(`Failed to get stack status: ${errorMessage}`);
+    process.exit(1);
+  }
 }
 async function handlePublish(stack, args, options) {
   const [prNumberStr] = args;

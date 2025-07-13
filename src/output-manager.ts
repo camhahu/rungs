@@ -7,10 +7,16 @@
  * - Progress indicators and status icons
  * - Consistent formatting across all commands
  * - Support for grouped operations
+ * - Compact mode with self-replacing output
+ * - ANSI-based animations and progress tracking
  */
+
+import { AnsiUtils } from './ansi-utils.js';
+import { ProgressIndicator, SpinnerStyle } from './progress-indicator.js';
 
 export type LogLevel = "info" | "success" | "warning" | "error" | "progress";
 export type OperationType = "git" | "github" | "stack" | "config" | "general";
+export type OutputMode = "verbose" | "compact";
 
 interface OutputConfig {
   showTimestamps: boolean;
@@ -18,10 +24,52 @@ interface OutputConfig {
   verboseMode: boolean;
 }
 
+export interface CompactOutputConfig extends OutputConfig {
+  outputMode: OutputMode;
+  spinnerStyle: SpinnerStyle;
+  maxLineLength: number;
+  showElapsedTime: boolean;
+}
+
+export interface CompactLogOptions {
+  operationId?: string;
+  replaceLastLine?: boolean;
+  truncate?: boolean;
+}
+
+/**
+ * Theme configuration for compact output mode
+ */
+export const COMPACT_THEME = {
+  states: {
+    loading: { color: 'cyan', icon: '⠋', bold: false },
+    success: { color: 'green', icon: '✅', bold: true },
+    error: { color: 'red', icon: '❌', bold: true },
+    warning: { color: 'yellow', icon: '⚠️', bold: true },
+    info: { color: 'blue', icon: 'ℹ️', bold: false }
+  },
+  operations: {
+    git: { color: 'blue', icon: '🔄' },
+    github: { color: 'magenta', icon: '📤' },
+    stack: { color: 'cyan', icon: '📚' },
+    config: { color: 'yellow', icon: '⚙️' },
+    general: { color: 'white', icon: '💻' }
+  },
+  emphasis: {
+    primary: ['bold'],
+    secondary: ['italic'],
+    highlight: ['bold', 'brightWhite'],
+    muted: ['dim', 'gray']
+  }
+};
+
 export class OutputManager {
   private indentLevel: number = 0;
   private currentSection: string | null = null;
-  private config: OutputConfig;
+  private config: CompactOutputConfig;
+  private activeOperations: Map<string, ProgressIndicator> = new Map();
+  private operationStack: string[] = [];
+  private lastOutputWasCompact = false;
   
   // Icons for different operation types and statuses
   private static readonly ICONS = {
@@ -50,11 +98,15 @@ export class OutputManager {
     gray: "\x1b[90m"
   };
 
-  constructor(config: Partial<OutputConfig> = {}) {
+  constructor(config: Partial<CompactOutputConfig> = {}) {
     this.config = {
       showTimestamps: false,
       useColors: true,
       verboseMode: false,
+      outputMode: 'compact',
+      spinnerStyle: 'dots',
+      maxLineLength: 80,
+      showElapsedTime: false,
       ...config
     };
   }
@@ -97,12 +149,28 @@ export class OutputManager {
   /**
    * Log a message with appropriate formatting
    */
-  log(message: string, level: LogLevel = "info", indent: number = 0): void {
+  log(message: string, level: LogLevel = "info", indent: number = 0, options?: CompactLogOptions): void {
+    // In compact mode, ensure we don't interfere with active operations
+    if (this.config.outputMode === "compact" && this.lastOutputWasCompact) {
+      // Move to a new line if the last output was compact
+      console.log();
+      this.lastOutputWasCompact = false;
+    }
+
     const icon = OutputManager.ICONS[level];
     const prefix = this.getPrefix(icon, level);
     const indentation = "  ".repeat(this.indentLevel + indent);
     
-    const formattedMessage = `${indentation}${prefix} ${message}`;
+    let formattedMessage = `${indentation}${prefix} ${message}`;
+    
+    // Handle truncation in compact mode
+    if (this.config.outputMode === "compact" && options?.truncate && this.config.maxLineLength > 0) {
+      const maxLength = this.config.maxLineLength - indentation.length - prefix.length - 1;
+      if (message.length > maxLength) {
+        formattedMessage = `${indentation}${prefix} ${AnsiUtils.truncate(message, maxLength)}`;
+      }
+    }
+    
     console.log(this.colorize(formattedMessage, this.getLevelColor(level)));
   }
 
@@ -221,6 +289,124 @@ export class OutputManager {
   }
 
   /**
+   * Set output mode (verbose or compact)
+   */
+  setOutputMode(mode: OutputMode): void {
+    this.config.outputMode = mode;
+  }
+
+  /**
+   * Get current output mode
+   */
+  getOutputMode(): OutputMode {
+    return this.config.outputMode;
+  }
+
+  /**
+   * Start a new operation in compact mode
+   */
+  startOperation(id: string, message: string, type: OperationType = "general"): void {
+    if (this.config.outputMode === "verbose") {
+      // Fallback to verbose mode behavior
+      this.startGroup(message, type);
+      return;
+    }
+
+    // Clean up previous operation if exists
+    this.completeOperation(id, '', 'success');
+
+    const icon = OutputManager.ICONS[type];
+    const displayMessage = `${icon} ${message}`;
+    
+    const progressIndicator = new ProgressIndicator(displayMessage, {
+      style: this.config.spinnerStyle,
+      color: this.getTypeColor(type)
+    });
+
+    this.activeOperations.set(id, progressIndicator);
+    this.operationStack.push(id);
+    
+    progressIndicator.start();
+    this.lastOutputWasCompact = true;
+  }
+
+  /**
+   * Update an existing operation's message
+   */
+  updateOperation(id: string, message: string): void {
+    if (this.config.outputMode === "verbose") {
+      this.progress(message);
+      return;
+    }
+
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      operation.updateText(message);
+    }
+  }
+
+  /**
+   * Complete an operation successfully
+   */
+  completeOperation(id: string, message: string, level: LogLevel = 'success'): void {
+    if (this.config.outputMode === "verbose") {
+      if (message) {
+        this.log(message, level);
+      }
+      this.endGroup();
+      return;
+    }
+
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      const finalMessage = message || 'Completed';
+      
+      switch (level) {
+        case 'success':
+          operation.success(finalMessage);
+          break;
+        case 'error':
+          operation.error(finalMessage);
+          break;
+        case 'warning':
+          operation.warn(finalMessage);
+          break;
+        case 'info':
+          operation.info(finalMessage);
+          break;
+        default:
+          operation.success(finalMessage);
+      }
+      
+      this.activeOperations.delete(id);
+      this.operationStack = this.operationStack.filter(opId => opId !== id);
+    }
+  }
+
+  /**
+   * Fail an operation with error
+   */
+  failOperation(id: string, message: string, error?: string): void {
+    if (this.config.outputMode === "verbose") {
+      this.error(message);
+      if (error) {
+        this.error(error, 1);
+      }
+      this.endGroup();
+      return;
+    }
+
+    const operation = this.activeOperations.get(id);
+    if (operation && operation.isRunning()) {
+      const errorMessage = error ? `${message}: ${error}` : message;
+      operation.error(errorMessage);
+      
+      this.activeOperations.delete(id);
+      this.operationStack = this.operationStack.filter(opId => opId !== id);
+    }
+  }
+
+  /**
    * Get color-coded prefix for log level
    */
   private getPrefix(icon: string, level: LogLevel): string {
@@ -242,6 +428,20 @@ export class OutputManager {
       case "progress": return "cyan";
       case "info":
       default: return "reset";
+    }
+  }
+
+  /**
+   * Get color for operation type
+   */
+  private getTypeColor(type: OperationType): string {
+    switch (type) {
+      case "git": return "blue";
+      case "github": return "magenta";
+      case "stack": return "cyan";
+      case "config": return "yellow";
+      case "general":
+      default: return "white";
     }
   }
 
@@ -312,4 +512,25 @@ export function logSummary(title: string, items: { label: string; value: string 
 
 export function setVerbose(verbose: boolean): void {
   output.setVerbose(verbose);
+}
+
+// New convenience functions for compact mode
+export function setOutputMode(mode: OutputMode): void {
+  output.setOutputMode(mode);
+}
+
+export function startOperation(id: string, message: string, type: OperationType = "general"): void {
+  output.startOperation(id, message, type);
+}
+
+export function updateOperation(id: string, message: string): void {
+  output.updateOperation(id, message);
+}
+
+export function completeOperation(id: string, message: string, level: LogLevel = 'success'): void {
+  output.completeOperation(id, message, level);
+}
+
+export function failOperation(id: string, message: string, error?: string): void {
+  output.failOperation(id, message, error);
 }

@@ -5,12 +5,18 @@ import { GitManager } from "./git-manager.js";
 import { GitHubManager } from "./github-manager.js";
 import { ConfigManager } from "./config-manager.js";
 import { StackManager } from "./stack-manager.js";
-import { output, setVerbose, logSummary } from "./output-manager.js";
+import { output, setVerbose, logSummary, setOutputMode, startOperation, completeOperation, failOperation } from "./output-manager.js";
+import { OperationTracker } from "./operation-tracker.js";
 
 interface CliOptions {
   help?: boolean;
   config?: string;
   verbose?: boolean;
+  quiet?: boolean;
+  compact?: boolean;
+  outputMode?: string;
+  noColor?: boolean;
+  noSpinner?: boolean;
   autoPublish?: boolean;
   force?: boolean;
 }
@@ -38,6 +44,11 @@ async function main() {
         help: { type: "boolean", short: "h" },
         config: { type: "string", short: "c" },
         verbose: { type: "boolean", short: "v" },
+        quiet: { type: "boolean", short: "q" },
+        compact: { type: "boolean" },
+        "output-mode": { type: "string" },
+        "no-color": { type: "boolean" },
+        "no-spinner": { type: "boolean" },
         "auto-publish": { type: "boolean" },
         force: { type: "boolean", short: "f" }
       },
@@ -46,7 +57,10 @@ async function main() {
 
     const options = {
       ...values,
-      autoPublish: values["auto-publish"]
+      autoPublish: values["auto-publish"],
+      outputMode: values["output-mode"],
+      noColor: values["no-color"],
+      noSpinner: values["no-spinner"]
     } as CliOptions;
     const [command, ...args] = positionals;
 
@@ -61,12 +75,30 @@ async function main() {
       process.exit(1);
     }
 
-    // Set verbose mode if requested
-    if (options.verbose) {
+    // Configure output mode
+    const config = new ConfigManager(options.config);
+    const userConfig = await config.getAll();
+    
+    // Determine output mode based on flags and config
+    let outputMode = userConfig.output.mode;
+    if (options.quiet || options.compact) {
+      outputMode = 'compact';
+    } else if (options.verbose) {
+      outputMode = 'verbose';
+    } else if (options.outputMode) {
+      outputMode = options.outputMode as 'verbose' | 'compact';
+    }
+    
+    // Apply output configuration
+    setOutputMode(outputMode);
+    
+    // Set verbose mode for backward compatibility
+    if (options.verbose || outputMode === 'verbose') {
       setVerbose(true);
     }
-
-    const config = new ConfigManager(options.config);
+    
+    // Note: Output manager configuration is handled through the global output instance
+    // Future enhancement: Add method to update output manager configuration dynamically
     const git = new GitManager();
     const github = new GitHubManager();
     const stack = new StackManager(config, git, github);
@@ -118,11 +150,16 @@ COMMANDS:
 ${Object.entries(COMMANDS).map(([cmd, desc]) => `  ${cmd.padEnd(12)} ${desc}`).join('\n')}
 
 OPTIONS:
-  -h, --help         Show help information
-  -c, --config PATH  Specify config file path
-  -v, --verbose      Enable verbose output
-  -f, --force        Force operation, bypassing safety checks
-      --auto-publish Create PRs as published instead of draft
+  -h, --help           Show help information
+  -c, --config PATH    Specify config file path
+  -v, --verbose        Enable verbose output mode
+  -q, --quiet          Enable compact output mode (same as --compact)
+      --compact        Enable compact output mode
+      --output-mode    Set output mode: 'verbose' or 'compact'
+      --no-color       Disable colored output
+      --no-spinner     Disable spinner animations
+  -f, --force          Force operation, bypassing safety checks
+      --auto-publish   Create PRs as published instead of draft
 
 EXAMPLES:
   rungs stack                      # Create/update stack with current commits
@@ -146,10 +183,39 @@ async function handlePush(stack: StackManager, args: string[], options: CliOptio
 }
 
 async function handleStatus(stack: StackManager, options: CliOptions) {
-  output.startSection("Stack Status", "stack");
-  const status = await stack.getStatus();
-  console.log(status);
-  output.endSection();
+  // Create operation tracker for better progress management
+  const tracker = new OperationTracker(output);
+  
+  try {
+    // In verbose mode, use the old section-based approach
+    if (output.getOutputMode() === 'verbose') {
+      output.startSection("Stack Status", "stack");
+      const status = await stack.getStatus();
+      console.log(status);
+      output.endSection();
+      return;
+    }
+    
+    // In compact mode, use operation-based approach
+    const status = await tracker.stackOperation(
+      "Retrieving stack status",
+      async () => {
+        return await stack.getStatus();
+      },
+      {
+        successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+        showElapsed: true
+      }
+    );
+    
+    // Display the status information
+    console.log(status);
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    output.error(`Failed to get stack status: ${errorMessage}`);
+    process.exit(1);
+  }
 }
 
 async function handlePublish(stack: StackManager, args: string[], options: CliOptions) {
