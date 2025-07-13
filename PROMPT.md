@@ -10,7 +10,7 @@ You are working on `rungs`.
 4. Implement the bug/feature and tests using a subagent, existing and new tests must all pass and the build must succeed.
 5. Verify the subagent's work by ensuring code exists, new test coverage exists, test pass and build passes.
 6. Compact the @docs/issues/<this issue>.md to only what is relevent. Include a summary at the top for future agents to decide if they want to read it.
-7. Build and commit your code. Use `rungs` itself to create the PR.
+7. Build and commit your code. Use `rungs stack` to create a PR. Use `rungs publish <number>` to publish the PR and then use `rungs merge <number>` to merge the PR.
 
 ## Encountering issues
 - When you encounter an issue, immediately add it to @docs/ISSUES.md with the relevant priority using a subagent. If it blocks you from completing your current task, abandon the current task, make note that it has been abandoned and fix the issue instead.
