@@ -49,6 +49,10 @@ New Commits (ready to push): 1
   - support `--from=HEAD~3 --to=HEAD~1` to specify a range of commits
   - error and tell the user what they're doing wrong if a commit in the range they've specified is already associated with a stack
   - error and tell the user what they're doing wrong if there are unstacked commits BEFORE the --from commit
+
+- Include the status of the PR in `rungs status`
+  - Whether it is in Draft or Review (don't include any other states as they're not relevant to rungs)
+
 ---
 
 - Auto sync stacks on every rungs command (or maybe an explicit `rungs sync`)
