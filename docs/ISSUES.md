@@ -3,12 +3,15 @@
 This document tracks all work items needed to implement the rungs CLI project.
 
 ## Bugs
+- [x] Compact mode status command error: `rungs status --compact` throws "undefined is not an object (evaluating 'result.prs.length')" error
 - 
 
 ## Features
-- The CLI output is too long and hard to read. Each discrete 'step' of the CLI command should only really take up 1 line of output, then you know each line should 'replace itself' like some CLIs do.
-  - Use of consistent colour for loading states/completed states/error states
-  - Better use of bold/italic text formatting to indicate emphasis
+- [x] The CLI output is too long and hard to read. Each discrete 'step' of the CLI command should only really take up 1 line of output, then you know each line should 'replace itself' like some CLIs do.
+  - [x] Use of consistent colour for loading states/completed states/error states
+  - [x] Better use of bold/italic text formatting to indicate emphasis
+  - [x] Added ANSI utilities and progress indicators
+  - [x] Full backward compatibility with CLI flags for output control
 
 
 - Auto sync stacks on every rungs command (or maybe an explicit `rungs sync`)
@@ -19,5 +22,5 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 ---
 
-*Last updated: 2025-12-07*
+*Last updated: 2025-07-13*
 *Update this file as issues are completed or new ones are identified*

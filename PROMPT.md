@@ -13,4 +13,5 @@ You are working on `rungs`.
 
 ## Encountering issues
 - When you encounter an issue, immediately add it to @docs/ISSUES.md with the relevant priority using a subagent. If it blocks you from completing your current task, abandon the current task, make note that it has been abandoned and fix the issue instead.
+- If you have introduced this bug as a part of your feature, you must resolve it immediately.
 
