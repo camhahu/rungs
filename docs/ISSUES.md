@@ -34,6 +34,7 @@ New Commits (ready to push): 1
 ```
 - It says there are new commits to push but also that commit is in PR 81 (already stacked)
 
+- The `rungs merge` output is still verbose. Make sure it respect compact by default and verbose if explicitly provided. 
 
 ## Features
 
