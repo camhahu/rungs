@@ -12,7 +12,8 @@ A CLI tool for managing stacked diffs with Git and GitHub, making the workflow f
 ## Development Commands
 
 - `bun run dev` - Run in development mode
-- `bun test` - Run tests
+- `bun run test:check` - Run tests (this is a script that simplifies the output of `bun test` for LLMs
+- `bun test` - Run tests. May be used if `bun run test:check` did not succeed.
 - `bun run build` - Build the CLI
 - `bun run cli` - Run the CLI locally
 
