@@ -2,25 +2,20 @@
 
 This document tracks all work items needed to implement the rungs CLI project.
 
-BUGS:
-- [FIXED] --auto-publish option does not work for the rungs stack command. The PR is still in draft mode after it is created.
-- [FIXED] rungs creates its state files in the directory it is run from.
-  - rungs should create any state in the user's home directory, under .config/rungs/<state>
-  - rungs will need to have state for each local repository it is ran from
-  - rungs should bias for using state from the github server, not local state. Unless local state makes rungs noticably faster to the user. 
-- When I create 2 stacks on top of each other. They look good. When I merge the first stack, however, then run rungs status, the second stack PR updates to go into main (correct) but it shows the stack as having both Stack 1 and Stack 2's commits - thus the diff is not intuitive.
+## Bugs
+- 
 
-Commit 1
+## Features
+- The CLI output is too long and hard to read. Each discrete 'step' of the CLI command should only really take up 1 line of output, then you know each line should 'replace itself' like some CLIs do.
+  - Use of consistent colour for loading states/completed states/error states
+  - Better use of bold/italic text formatting to indicate emphasis
 
 
-## Configuration
-
-- [ ] **Configuration Options Implementation**
-  - GitHub settings (owner, repo, baseBranch, always auto publish)
-  - Branch settings (prefix, naming strategy, maxLength)
-  - Stack settings (autoDetect, maxStackSize, grouping)
-  - PR settings (defaultDraft, autoLink, template)
-  - Sync settings (autoSync, strategy)
+- Auto sync stacks on every rungs command (or maybe an explicit `rungs sync`)
+  - I might have Commit A with Stack/PR A, then Commit B with Stack/PR B.
+  - Then, I get PR feedback on Stack A, I switch to the branch for Stack A and make a new commit on Stack A's branch.
+  - Then, I want to update Stack A with `rungs amend`. This should push my commit to Stack A's branch. Then it needs to update all of my other stacks to rebase that commit.
+  - Or maybe just `rungs amend` will update all the other stacks
 
 ---
 
