@@ -11,7 +11,7 @@ This document tracks all work items needed to implement the rungs CLI project.
   - [x] Separately from the stack, show any local commits that don't below to a stack. 'Unstacked'
   - [x] Overall commit count is not useful (and wrong at the moment) - removed totalCommits field
 
-- `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
+- [x] `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
 
 
 - This strange output from rungs status
