@@ -43,8 +43,12 @@ New Commits (ready to push): 1
 
 - Compact vs verbose mode is confusing. Remove compact as an option. It must be the default. --verbose should stay as a possible option.
 
+- Ensure rungs only modifies PRs that were creates by the user.
 
-
+- `rungs stack` should work as it currently does by default. Support `rungs stack HEAD~2` and similar git HEAD references to support only stacking 'the last 2 commits'.
+  - support `--from=HEAD~3 --to=HEAD~1` to specify a range of commits
+  - error and tell the user what they're doing wrong if a commit in the range they've specified is already associated with a stack
+  - error and tell the user what they're doing wrong if there are unstacked commits BEFORE the --from commit
 ---
 
 - Auto sync stacks on every rungs command (or maybe an explicit `rungs sync`)
