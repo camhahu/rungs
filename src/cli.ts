@@ -325,9 +325,28 @@ async function handleMerge(stack: StackManager, args: string[], options: CliOpti
     process.exit(1);
   }
   
-  output.startSection("Merge Pull Request", "github");
-  await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
-  output.endSection();
+  // In verbose mode, use the traditional section-based approach
+  if (output.getOutputMode() === 'verbose') {
+    output.startSection("Merge Pull Request", "github");
+    await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    output.endSection();
+    return;
+  }
+  
+  // In compact mode, use OperationTracker pattern
+  const tracker = new OperationTracker(output);
+  const prText = prNumber ? `#${prNumber}` : "current branch's PR";
+  await tracker.githubOperation(
+    `Merging PR ${prText}`,
+    async () => {
+      await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+      return { success: true };
+    },
+    {
+      successMessage: () => `Successfully merged PR ${prText}`,
+      showElapsed: true
+    }
+  );
 }
 
 async function handleRebase(stack: StackManager, args: string[], options: CliOptions) {
