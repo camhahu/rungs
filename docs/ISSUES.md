@@ -36,23 +36,9 @@ New Commits (ready to push): 1
 
 
 ## Features
-- [x] The CLI output is too long and hard to read. Each discrete 'step' of the CLI command should only really take up 1 line of output, then you know each line should 'replace itself' like some CLIs do.
-  - [x] Use of consistent colour for loading states/completed states/error states
-  - [x] Better use of bold/italic text formatting to indicate emphasis
-  - [x] Added ANSI utilities and progress indicators
-  - [x] Full backward compatibility with CLI flags for output control
-
----
-
-- [x] The CLI output is now better, but it should be more compact. Line replacement functionality has been implemented with proper ANSI escape sequences and progress indicators. The compact mode now correctly uses self-replacing progress lines without verbose logging conflicts.
-
----
 
 - Compact vs verbose mode is confusing. Remove compact as an option. It must be the default. --verbose should stay as a possible option.
 
----
-
-- [x] `rungs status` shows the current stacks, there should be links to each of the PRs in the stack so I can easily click them.
 
 ---
 
