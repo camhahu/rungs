@@ -15,26 +15,6 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - [x] Failing tests - Fixed operation-tracker.ts defensive programming issues causing "TypeError: this.output.failOperation is not a function" errors in auto-publish.test.ts (all 186 tests now pass)
 
-### Strange output from `rungs status`
-It says there are new commits to push but also that commit is in PR 81 (already stacked)
-
-```
-
-PR #79: Add more bugs and issues → https://github.com/camhahu/rungs/pull/79
-  Base: camhahu/implement-compact-mode-line-replacement-for-improv
-  a60b6f9 Add more bugs and issues
-
-PR #80: Add issues → https://github.com/camhahu/rungs/pull/80
-  Base: camhahu/add-more-bugs-and-issues
-  e20b19a Add issues
-
-PR #81: Improve rungs status output with commit details and PR links → https://github.com/camhahu/rungs/pull/81
-  Base: camhahu/add-issues
-  7687399 Improve rungs status output with commit details and PR links
-
-New Commits (ready to push): 1
-  7687399 Improve rungs status output with commit details and PR links
-```
 
 ### Rungs merge doesn't respect compact by default
 - The `rungs merge` output is still verbose. Make sure it respect compact by default and verbose if explicitly provided. 

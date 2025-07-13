@@ -297,37 +297,68 @@ class GitManager {
       }
     }
   }
-  async getUnstakedCommits(stackBranches, defaultBranch) {
+  async getUnstakedCommits(stackBranches, defaultBranch, debug = false) {
     try {
       const exclusions = [`origin/${defaultBranch}`];
       for (const branch of stackBranches) {
         exclusions.push(`origin/${branch}`);
       }
+      if (debug) {
+        console.log("[DEBUG] getUnstakedCommits - Stack branches for exclusion:", stackBranches);
+        console.log("[DEBUG] getUnstakedCommits - Exclusions being tried:", exclusions);
+      }
       let newCommits = [];
       let foundWorkingExclusion = false;
+      const validatedExclusions = [];
       for (const exclusion of exclusions) {
         try {
           await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
           const commitsFromThisRef = await this.getCommitsSince(exclusion);
+          validatedExclusions.push({ exclusion, commitCount: commitsFromThisRef.length });
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Exclusion ${exclusion}: found ${commitsFromThisRef.length} commits`);
+          }
           if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
             newCommits = commitsFromThisRef;
+            if (debug) {
+              console.log(`[DEBUG] getUnstakedCommits - Using ${exclusion} as best exclusion (${commitsFromThisRef.length} commits)`);
+            }
           }
           foundWorkingExclusion = true;
         } catch {
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Branch ${exclusion} does not exist, skipping exclusion`);
+          }
           continue;
         }
+      }
+      if (debug) {
+        console.log("[DEBUG] getUnstakedCommits - Final result:", {
+          foundWorkingExclusion,
+          finalCommitCount: newCommits.length,
+          validatedExclusions
+        });
       }
       if (!foundWorkingExclusion) {
         try {
           newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Fallback to origin/${defaultBranch}: ${newCommits.length} commits`);
+          }
         } catch {
           try {
             const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
             const baseRef = rootCommit.trim().split(`
 `)[0];
             newCommits = await this.getCommitsSince(baseRef);
+            if (debug) {
+              console.log(`[DEBUG] getUnstakedCommits - Last resort fallback to root commit: ${newCommits.length} commits`);
+            }
           } catch {
             newCommits = [];
+            if (debug) {
+              console.log("[DEBUG] getUnstakedCommits - All fallbacks failed, returning empty array");
+            }
           }
         }
       }
@@ -1534,9 +1565,11 @@ class StackManager {
         })), config.defaultBranch);
         const stackBranches = fixedPRs.map((pr) => pr.headRefName);
         const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
+        const prCommitHashes = new Set(prsWithCommits.flatMap((pr) => pr.commits?.map((c) => c.hash) || []));
+        const deduplicatedUnstacked = unstakedCommits.filter((commit) => !prCommitHashes.has(commit.hash));
         const stackState = {
           prs: prsWithCommits,
-          unstakedCommits,
+          unstakedCommits: deduplicatedUnstacked,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
         return stackState;
@@ -1568,9 +1601,11 @@ class StackManager {
         })), config.defaultBranch);
         const stackBranches = fixedPRs.map((pr) => pr.headRefName);
         const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
+        const prCommitHashes = new Set(prsWithCommits.flatMap((pr) => pr.commits?.map((c) => c.hash) || []));
+        const deduplicatedUnstacked = unstakedCommits.filter((commit) => !prCommitHashes.has(commit.hash));
         const stackState = {
           prs: prsWithCommits,
-          unstakedCommits,
+          unstakedCommits: deduplicatedUnstacked,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
         logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);

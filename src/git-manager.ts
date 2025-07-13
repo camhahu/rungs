@@ -405,7 +405,7 @@ export class GitManager {
   /**
    * Find commits on current branch that aren't in any stack branch or default branch
    */
-  async getUnstakedCommits(stackBranches: string[], defaultBranch: string): Promise<GitCommit[]> {
+  async getUnstakedCommits(stackBranches: string[], defaultBranch: string, debug = false): Promise<GitCommit[]> {
     try {
       // Build exclusion list: origin/defaultBranch + all existing stack branches
       const exclusions = [`origin/${defaultBranch}`];
@@ -415,8 +415,14 @@ export class GitManager {
         exclusions.push(`origin/${branch}`);
       }
 
+      if (debug) {
+        console.log('[DEBUG] getUnstakedCommits - Stack branches for exclusion:', stackBranches);
+        console.log('[DEBUG] getUnstakedCommits - Exclusions being tried:', exclusions);
+      }
+
       let newCommits: GitCommit[] = [];
       let foundWorkingExclusion = false;
+      const validatedExclusions: Array<{exclusion: string, commitCount: number}> = [];
 
       // Try different strategies to find new commits
       for (const exclusion of exclusions) {
@@ -426,32 +432,61 @@ export class GitManager {
 
           // Get commits since this ref
           const commitsFromThisRef = await this.getCommitsSince(exclusion);
+          validatedExclusions.push({ exclusion, commitCount: commitsFromThisRef.length });
+
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Exclusion ${exclusion}: found ${commitsFromThisRef.length} commits`);
+          }
 
           // Use the ref that gives us the smallest set of new commits
           // (most recent starting point)
+          // CRITICAL FIX: Accept 0 commits as a valid result (when HEAD equals stack branch tip)
           if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
             newCommits = commitsFromThisRef;
+            if (debug) {
+              console.log(`[DEBUG] getUnstakedCommits - Using ${exclusion} as best exclusion (${commitsFromThisRef.length} commits)`);
+            }
           }
           
           foundWorkingExclusion = true;
         } catch {
           // This ref doesn't exist, skip it
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Branch ${exclusion} does not exist, skipping exclusion`);
+          }
           continue;
         }
+      }
+
+      if (debug) {
+        console.log('[DEBUG] getUnstakedCommits - Final result:', {
+          foundWorkingExclusion,
+          finalCommitCount: newCommits.length,
+          validatedExclusions
+        });
       }
 
       // If no exclusions worked, fall back to just origin/defaultBranch
       if (!foundWorkingExclusion) {
         try {
           newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
+          if (debug) {
+            console.log(`[DEBUG] getUnstakedCommits - Fallback to origin/${defaultBranch}: ${newCommits.length} commits`);
+          }
         } catch {
           // Last resort: get commits from a reasonable base
           try {
             const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
             const baseRef = rootCommit.trim().split('\n')[0];
             newCommits = await this.getCommitsSince(baseRef);
+            if (debug) {
+              console.log(`[DEBUG] getUnstakedCommits - Last resort fallback to root commit: ${newCommits.length} commits`);
+            }
           } catch {
             newCommits = [];
+            if (debug) {
+              console.log('[DEBUG] getUnstakedCommits - All fallbacks failed, returning empty array');
+            }
           }
         }
       }
