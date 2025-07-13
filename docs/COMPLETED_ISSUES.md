@@ -9,3 +9,6 @@ Fixed `rungs merge` command to respect output mode configuration by implementing
 
 ## Stack misidentification after rebase operations
 Fixed critical bug where commits were incorrectly identified as "unstacked" after PR merge and rebase operations due to stale remote refs and timing issues in commit detection logic. See [stack-misidentification.md](issues/stack-misidentification.md) for detailed analysis and implementation details.
+
+## Test failure detection improvements
+Created simple shell script solution to analyze bun test output and detect failures that were being missed due to long output, ensuring proper exit code checking and clear failure reporting. See [test-failure-detection.md](issues/test-failure-detection.md) for implementation details.

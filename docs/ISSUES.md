@@ -19,8 +19,6 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 ## Features
 
-- When running tests, you frequently mistake them for having passed when the exit code is clearly a failure. This is fair enough because the test output is long but it needs to stop. Can you come up with a way to ensure you check the error code of the tests?
-
 - The `rungs stack` command used to be called `rungs push`. There are various places this has not been fixed in the codebase. Fix them all and remove any reference to `rungs push`.
 
 - Test coverage is okay. But we are not enforcing it. Can you add a pre-commit hook to check for code coverage % and ensure it is over 95%. Add new tests to increase the coverage.
