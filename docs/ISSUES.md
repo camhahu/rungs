@@ -36,6 +36,57 @@ New Commits (ready to push): 1
 
 - The `rungs merge` output is still verbose. Make sure it respect compact by default and verbose if explicitly provided. 
 
+- A commit is mistakenly identified as not belonging to an open stack after stack was rebased after previous stack was merged
+  - I had two commits and two open PRs/stacks respectively
+  - I merged the first commit with `rungs merge ..`
+  - Rungs correctly updated the second stack to rebase properly, and did other things that it does
+  - I created a new commit and ran `rungs status`
+  - Rungs mistakenly told me that commit 2 (already in a stack) and commit 3 (new, local commit) were both unstacked and would be created in the next stack
+
+Output from above bug:
+```
+camhahu@Camerons-MacBook-Pro rungs % gst
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   docs/ISSUES.md
+
+no changes added to commit (use "git add" and/or "git commit -a")
+camhahu@Camerons-MacBook-Pro rungs % gaa
+camhahu@Camerons-MacBook-Pro rungs % git commit -m "Add bug for still verbose outputs in rungs merge"
+[main f2829bc] Add bug for still verbose outputs in rungs merge
+ 1 file changed, 1 insertion(+)
+camhahu@Camerons-MacBook-Pro rungs % gst
+On branch main
+Your branch is ahead of 'origin/main' by 2 commits.
+  (use "git push" to publish your local commits)
+
+nothing to commit, working tree clean
+camhahu@Camerons-MacBook-Pro rungs % rungs status
+✅ Discovering stack from GitHub
+✅ Stack status retrieved - 1 PRs, 2 unstacked commits (600ms)
+Stack Status: 1 PRs
+
+PR #87: Add feature for PR state in rungs status → https://github.com/camhahu/rungs/pull/87
+  Base: main
+  40b205c Add feature for PR state in rungs status
+
+New Commits (ready to push): 2
+  f2829bc Add bug for still verbose outputs in rungs merge
+  aae9cfe Add feature for PR state in rungs status
+camhahu@Camerons-MacBook-Pro rungs % gst
+On branch main
+Your branch is ahead of 'origin/main' by 2 commits.
+  (use "git push" to publish your local commits)
+
+nothing to commit, working tree clean
+camhahu@Camerons-MacBook-Pro rungs %
+```
+
 ## Features
 
 - The `rungs stack` command used to be called `rungs push`. There are various places this has not been fixed in the codebase. Fix them all and remove any reference to `rungs push`.
