@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, spyOn } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { GitHubManager } from "../src/github-manager";
 import { StackManager } from "../src/stack-manager";
 import { ConfigManager } from "../src/config-manager";
@@ -14,6 +14,11 @@ beforeEach(() => {
   mockBunShell = spyOn(Bun, "$" as any).mockImplementation(() => 
     Promise.resolve({ text: () => Promise.resolve(""), quiet: () => Promise.resolve() })
   );
+});
+
+afterEach(() => {
+  // Clean up the spy to avoid affecting other tests
+  mockBunShell?.mockRestore();
 });
 
 test("GitHubManager should publish pull request successfully", async () => {
@@ -97,6 +102,12 @@ beforeEach(() => {
   mockBunShell = spyOn(Bun, "$" as any).mockImplementation(() => 
     Promise.resolve({ text: () => Promise.resolve(""), quiet: () => Promise.resolve() })
   );
+});
+
+// Cleanup for StackManager tests
+afterEach(() => {
+  // Clean up all spies to avoid affecting other tests
+  mockBunShell?.mockRestore();
 });
 
 test("StackManager should publish specific PR number", async () => {

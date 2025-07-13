@@ -304,20 +304,20 @@ class GitManager {
         exclusions.push(`origin/${branch}`);
       }
       let newCommits = [];
+      let foundWorkingExclusion = false;
       for (const exclusion of exclusions) {
         try {
           await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
           const commitsFromThisRef = await this.getCommitsSince(exclusion);
-          if (commitsFromThisRef.length > 0) {
-            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
-              newCommits = commitsFromThisRef;
-            }
+          if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+            newCommits = commitsFromThisRef;
           }
+          foundWorkingExclusion = true;
         } catch {
           continue;
         }
       }
-      if (newCommits.length === 0) {
+      if (!foundWorkingExclusion) {
         try {
           newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
         } catch {

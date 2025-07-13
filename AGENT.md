@@ -37,8 +37,13 @@ test("example test", () => {
   expect(1).toBe(1);
 });
 ```
-
-Never delete tests because they don't work. You're allowed to 'replace' tests that no longer are relevant. But you must replace them with new tests. Don't regress coverage.
+### Testing Rules
+- Never delete tests because they don't work.
+  - You're allowed to 'replace' tests that no longer are relevant. But you must replace them with new tests. .
+- The full test suite must pass or you are not allowed to commit.
+  - No exceptions.
+  - You are responsible for fixing all the tests.
+  - If new features cause regressions in old tests, even if you conclude they are unrelated, you must fix them.
 
 ### Bug Fix Testing Strategy
 

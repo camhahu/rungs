@@ -416,6 +416,7 @@ export class GitManager {
       }
 
       let newCommits: GitCommit[] = [];
+      let foundWorkingExclusion = false;
 
       // Try different strategies to find new commits
       for (const exclusion of exclusions) {
@@ -426,13 +427,13 @@ export class GitManager {
           // Get commits since this ref
           const commitsFromThisRef = await this.getCommitsSince(exclusion);
 
-          if (commitsFromThisRef.length > 0) {
-            // Use the ref that gives us the smallest set of new commits
-            // (most recent starting point)
-            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
-              newCommits = commitsFromThisRef;
-            }
+          // Use the ref that gives us the smallest set of new commits
+          // (most recent starting point)
+          if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+            newCommits = commitsFromThisRef;
           }
+          
+          foundWorkingExclusion = true;
         } catch {
           // This ref doesn't exist, skip it
           continue;
@@ -440,7 +441,7 @@ export class GitManager {
       }
 
       // If no exclusions worked, fall back to just origin/defaultBranch
-      if (newCommits.length === 0) {
+      if (!foundWorkingExclusion) {
         try {
           newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
         } catch {
