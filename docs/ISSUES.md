@@ -13,8 +13,12 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - [x] `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
 
+### Failing tests
+When running bun test, there are 2 tests that fail. Please fix them.
 
-- This strange output from rungs status
+### Strange output from `rungs status`
+It says there are new commits to push but also that commit is in PR 81 (already stacked)
+
 ```
 
 PR #79: Add more bugs and issues → https://github.com/camhahu/rungs/pull/79
@@ -32,10 +36,11 @@ PR #81: Improve rungs status output with commit details and PR links → https:/
 New Commits (ready to push): 1
   7687399 Improve rungs status output with commit details and PR links
 ```
-- It says there are new commits to push but also that commit is in PR 81 (already stacked)
 
+### Rungs merge doesn't respect compact by default
 - The `rungs merge` output is still verbose. Make sure it respect compact by default and verbose if explicitly provided. 
 
+### Commit mistakenly identified as not belonging to an open stack
 - A commit is mistakenly identified as not belonging to an open stack after stack was rebased after previous stack was merged
   - I had two commits and two open PRs/stacks respectively
   - I merged the first commit with `rungs merge ..`
