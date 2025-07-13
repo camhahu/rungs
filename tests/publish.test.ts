@@ -170,10 +170,10 @@ test("CLI argument parsing should parse --auto-publish flag correctly", () => {
     return { values: options, positionals: args.filter(arg => !arg.startsWith("--")) };
   };
 
-  const result1 = mockParseArgs(["push", "--auto-publish"]);
+  const result1 = mockParseArgs(["stack", "--auto-publish"]);
   expect(result1.values["auto-publish"]).toBe(true);
 
-  const result2 = mockParseArgs(["push"]);
+  const result2 = mockParseArgs(["stack"]);
   expect(result2.values["auto-publish"]).toBeUndefined();
 });
 

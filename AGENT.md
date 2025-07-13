@@ -146,7 +146,7 @@ The project uses:
 
 ### Development Process
 1. **Make complete, functional commits** - Each commit should be a standalone, working change
-2. **Use rungs push** - Create PRs for each logical change using the tool itself
+2. **Use rungs stack** - Create PRs for each logical change using the tool itself
 3. **Test stacking** - Create multiple PRs to validate stack dependencies work correctly
 4. **Verify behavior** - Use `rungs status` and `gh pr list` to confirm expected state
 5. **Document findings** - Note any issues or improvements discovered through usage
@@ -168,7 +168,7 @@ bun run build  # Ensure it works
 bun test       # Ensure all tests pass
 
 # Create PR
-rungs push
+rungs stack
 rungs status  # Verify state
 
 # Make another independent improvement  
@@ -177,7 +177,7 @@ bun run build
 bun test       # Ensure all tests pass
 
 # Create second PR (stacked)
-rungs push
+rungs stack
 gh pr list --state open  # Verify both PRs exist with correct bases
 
 # Continue with more changes...

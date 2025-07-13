@@ -2280,7 +2280,7 @@ async function main() {
     const stack = new StackManager(config, git, github, outputMode);
     switch (command) {
       case "stack":
-        await handlePush(stack, args, options);
+        await handleStack(stack, args, options);
         break;
       case "status":
         await handleStatus(stack, options);
@@ -2348,9 +2348,9 @@ EXAMPLES:
 For more information, visit: https://github.com/camhahu/rungs
 `);
 }
-async function handlePush(stack, args, options) {
+async function handleStack(stack, args, options) {
   if (output.getOutputMode() === "verbose") {
-    output.startSection("Push Stack Operation", "stack");
+    output.startSection("Stack Operation", "stack");
     await stack.pushStack(options.autoPublish, options.force);
     output.success("Stack operation completed successfully!");
     output.endSection();

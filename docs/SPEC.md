@@ -27,11 +27,11 @@ rungs <command> [options]
 
 ### Implemented Commands
 
-#### `rungs push`
+#### `rungs stack`
 Creates or updates GitHub PRs for commits on main branch.
 
 ```bash
-rungs push [options]
+rungs stack [options]
 ```
 
 **Behavior:**
@@ -123,7 +123,7 @@ Will manually sync with remote changes.
 
 ### Current Stack Creation Process
 1. User makes commits on main branch
-2. User runs `rungs push`
+2. User runs `rungs stack`
 3. Rungs performs the following:
    - Automatically syncs with GitHub to get current PR states
    - Detects if any PRs in current stack have been merged
@@ -172,7 +172,7 @@ Will manually sync with remote changes.
 ## Automatic GitHub Sync Behavior
 
 ### When Sync Occurs
-- Before every `rungs push` operation
+- Before every `rungs stack` operation
 - Before every `rungs status` operation
 - Automatically during stack maintenance
 
@@ -247,7 +247,7 @@ git add fix.js
 git commit -m "fix: resolve authentication bug"
 
 # Create PR for both commits
-rungs push
+rungs stack
 # Creates:
 # - Branch: dev/feat-add-new-feature
 # - One draft PR on GitHub with both commits
@@ -264,7 +264,7 @@ git add enhancement.js
 git commit -m "refactor: improve performance"
 
 # Push new changes
-rungs push
+rungs stack
 # Creates new PR for latest commit
 # Previous PR remains unchanged
 ```
@@ -276,7 +276,7 @@ git add newfile.js
 git commit -m "feat: add another feature"
 
 # Push - automatic rebase happens
-rungs push
+rungs stack
 # - Detects previous PR was merged
 # - Automatically rebases the stack
 # - Creates new PR for the new commit

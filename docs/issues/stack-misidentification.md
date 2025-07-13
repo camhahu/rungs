@@ -71,9 +71,9 @@ The issue stems from how commits are populated for PRs after a rebase operation 
 1. **Setup**: Create a repository with two commits on main
 2. **Create Stack**: 
    ```bash
-   rungs push  # Creates PR #1 with commit 1
+   rungs stack  # Creates PR #1 with commit 1
    # Add second commit
-   rungs push  # Creates PR #2 with commit 2, based on PR #1
+   rungs stack  # Creates PR #2 with commit 2, based on PR #1
    ```
 3. **Trigger Bug**:
    ```bash

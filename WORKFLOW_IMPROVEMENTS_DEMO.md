@@ -4,7 +4,7 @@
 
 Successfully implemented two major workflow improvements for rungs:
 
-1. **Duplicate PR Detection in `rungs push`**
+1. **Duplicate PR Detection in `rungs stack`**
 2. **Auto-pull After Merge in `rungs merge`**
 
 ## Implementation Details
@@ -26,7 +26,7 @@ async findPRsWithCommits(commitShas: string[]): Promise<Array<{
 ```
 
 **How it works:**
-1. When running `rungs push`, after identifying new commits to process
+1. When running `rungs stack`, after identifying new commits to process
 2. Searches all open PRs for branches containing those commit SHAs
 3. If duplicates found, shows helpful message and exits early
 4. Prevents creation of duplicate PRs
@@ -135,7 +135,7 @@ bun test tests/workflow-features-manual.test.ts
 ### Scenario 1: Duplicate PR Prevention
 ```bash
 # Developer accidentally tries to push same commits twice
-$ rungs push
+$ rungs stack
 
 🔄 Processing Commits:
   ℹ️ Found 1 commits to process:
