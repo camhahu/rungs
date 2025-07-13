@@ -615,6 +615,20 @@ export class StackManager {
    * Populate the commits field for each PR by fetching commit details
    */
   private async populateStackCommits(stackPRs: StackPR[], defaultBranch: string): Promise<StackPR[]> {
+    // Fetch latest remote refs to ensure accurate commit detection after rebases
+    // Only attempt if we have a real remote origin (not in test environments)
+    try {
+      const remoteUrl = await this.git.getRemoteUrl();
+      if (remoteUrl && !remoteUrl.includes('test/repo.git')) {
+        await this.git.fetchOrigin();
+      }
+    } catch (error) {
+      // Silently continue without fetch in test environments or when no remote exists
+      if (this.outputMode === 'verbose') {
+        console.warn(`Warning: Could not fetch remote refs: ${error}`);
+      }
+    }
+    
     const populatedPRs: StackPR[] = [];
     
     for (const pr of stackPRs) {
@@ -624,6 +638,10 @@ export class StackManager {
           ...pr,
           commits: commits
         });
+        
+        if (this.outputMode === 'verbose') {
+          console.log(`  Found ${commits.length} commits for PR #${pr.number} (${pr.branch})`);
+        }
       } catch (error) {
         // If we can't get commits for this PR, include it without commits
         console.warn(`Warning: Could not get commits for PR #${pr.number} (${pr.branch}): ${error}`);

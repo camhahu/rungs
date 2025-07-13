@@ -68,6 +68,9 @@ export class GitManager {
 
   async getCommitsSince(baseBranch: string): Promise<GitCommit[]> {
     try {
+      // First verify that the baseBranch exists as a valid ref for range operations
+      await Bun.$`git rev-parse --verify ${baseBranch}`.quiet();
+      
       const result = await Bun.$`git log ${baseBranch}..HEAD '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
       
       if (!result.trim()) {
@@ -79,9 +82,44 @@ export class GitManager {
         return { hash, message, author, date };
       });
     } catch (error) {
-      console.error(`Git command failed for ${baseBranch}:`);
-      console.error(error);
-      throw new Error(`Failed to get commits since ${baseBranch}: ${error}`);
+      // If baseBranch doesn't exist or range operation fails, try fallback approaches
+      try {
+        // Try to see if we can get all commits on current branch and filter
+        const allCommitsResult = await Bun.$`git log HEAD '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+        
+        if (!allCommitsResult.trim()) {
+          return [];
+        }
+        
+        const allCommits = allCommitsResult.trim().split('\n').map(line => {
+          const [hash, message, author, date] = line.split('|');
+          return { hash, message, author, date };
+        });
+        
+        // Try to find the base commit if it exists locally
+        const baseBranchLocal = baseBranch.replace(/^origin\//, '');
+        try {
+          await Bun.$`git rev-parse --verify ${baseBranchLocal}`.quiet();
+          const baseCommitResult = await Bun.$`git rev-parse ${baseBranchLocal}`.text();
+          const baseCommitHash = baseCommitResult.trim();
+          
+          // Find index of base commit and return commits after it
+          const baseIndex = allCommits.findIndex(commit => commit.hash === baseCommitHash);
+          if (baseIndex >= 0) {
+            return allCommits.slice(0, baseIndex);
+          }
+        } catch {
+          // Base branch doesn't exist locally either
+        }
+        
+        // If we can't find the base, return all commits (safer than empty)
+        return allCommits;
+      } catch (fallbackError) {
+        console.error(`Git command failed for ${baseBranch} and fallback failed:`);
+        console.error(error);
+        console.error('Fallback error:', fallbackError);
+        throw new Error(`Failed to get commits since ${baseBranch}: ${error}`);
+      }
     }
   }
 
@@ -374,32 +412,84 @@ export class GitManager {
       const result = await Bun.$`git log origin/${baseBranch}..origin/${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
       
       if (!result.trim()) {
-        return [];
+        // Fallback: try with local refs if remote range is empty (possibly due to stale refs)
+        return await this.getCommitsForBranchFallback(branchName, baseBranch);
       }
       
-      return result.trim().split('\n').map(line => {
-        const [hash, message, author, date] = line.split('|');
-        return { hash, message, author, date };
-      });
+      return this.parseCommitLog(result);
     } catch (error) {
       // If the branch doesn't exist remotely, try locally
+      return await this.getCommitsForBranchFallback(branchName, baseBranch);
+    }
+  }
+
+  /**
+   * Fallback method for getting commits when remote refs might be stale or missing
+   */
+  private async getCommitsForBranchFallback(branchName: string, baseBranch: string): Promise<GitCommit[]> {
+    try {
+      // Try with local refs first
+      const localResult = await Bun.$`git log ${baseBranch}..${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+      
+      if (localResult.trim()) {
+        return this.parseCommitLog(localResult);
+      }
+
+      // If local refs also fail, try checking if the branch exists locally but not remotely
       try {
-        const localResult = await Bun.$`git log ${baseBranch}..${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+        await Bun.$`git show-ref --verify --quiet refs/heads/${branchName}`;
+        // Branch exists locally, try alternative approach
+        const branchResult = await Bun.$`git log --oneline ${branchName}`.text();
+        const baseResult = await Bun.$`git log --oneline ${baseBranch}`.text();
         
-        if (!localResult.trim()) {
-          return [];
+        const branchCommits = new Set(branchResult.trim().split('\n').map(line => line.split(' ')[0]));
+        const baseCommits = new Set(baseResult.trim().split('\n').map(line => line.split(' ')[0]));
+        
+        // Find commits in branch but not in base
+        const uniqueCommits: string[] = [];
+        for (const commit of branchCommits) {
+          if (!baseCommits.has(commit)) {
+            uniqueCommits.push(commit);
+          }
         }
         
-        return localResult.trim().split('\n').map(line => {
-          const [hash, message, author, date] = line.split('|');
-          return { hash, message, author, date };
-        });
-      } catch (localError) {
-        console.error(`Git command failed for branch ${branchName}:`);
-        console.error(localError);
+        // Get full details for unique commits
+        const commits: GitCommit[] = [];
+        for (const hash of uniqueCommits) {
+          try {
+            const detailResult = await Bun.$`git show -s --format='%H|%s|%an|%ad' --date=iso ${hash}`.text();
+            const parsed = this.parseCommitLog(detailResult);
+            commits.push(...parsed);
+          } catch (detailError) {
+            // Skip this commit if we can't get details
+            continue;
+          }
+        }
+        
+        return commits;
+      } catch (refError) {
+        // Branch doesn't exist locally either
         return [];
       }
+    } catch (localError) {
+      console.error(`All fallback methods failed for branch ${branchName}:`);
+      console.error(localError);
+      return [];
     }
+  }
+
+  /**
+   * Parse git log output into GitCommit objects
+   */
+  private parseCommitLog(result: string): GitCommit[] {
+    if (!result.trim()) {
+      return [];
+    }
+    
+    return result.trim().split('\n').map(line => {
+      const [hash, message, author, date] = line.split('|');
+      return { hash, message, author, date };
+    });
   }
 
   /**
