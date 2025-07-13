@@ -4,10 +4,14 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 ## Bugs
 - [x] Compact mode status command error: `rungs status --compact` throws "undefined is not an object (evaluating 'result.prs.length')" error
-- `rungs status` returns a confusing (possibly incorrect) commit count. It shows 4 commits, while I have 5. I'm not sure if that's because the fifth doesn't have a stack/PR?
+
+- `rungs status` output could be improved. 
   - Show each stack in order, like you currently are
   - For each stack list the individual commits with their descriptions and short version of SHA underneath
   - Separately from the stack, show any local commits that don't below to a stack. 'Unstacked'
+  - Overall commit count is not useful (and wrong at the moment)
+
+- `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
 
 
 ## Features
