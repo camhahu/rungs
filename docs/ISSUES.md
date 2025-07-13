@@ -13,8 +13,7 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - [x] `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
 
-### Failing tests
-When running bun test, there are 2 tests that fail. Please fix them.
+- [x] Failing tests - Fixed operation-tracker.ts defensive programming issues causing "TypeError: this.output.failOperation is not a function" errors in auto-publish.test.ts (all 186 tests now pass)
 
 ### Strange output from `rungs status`
 It says there are new commits to push but also that commit is in PR 81 (already stacked)
