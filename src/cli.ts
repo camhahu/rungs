@@ -176,10 +176,28 @@ For more information, visit: https://github.com/camhahu/rungs
 }
 
 async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
-  output.startSection("Push Stack Operation", "stack");
-  await stack.pushStack(options.autoPublish, options.force);
-  output.success("Stack operation completed successfully!");
-  output.endSection();
+  // In verbose mode, use the traditional section-based approach
+  if (output.getOutputMode() === 'verbose') {
+    output.startSection("Push Stack Operation", "stack");
+    await stack.pushStack(options.autoPublish, options.force);
+    output.success("Stack operation completed successfully!");
+    output.endSection();
+    return;
+  }
+  
+  // In compact mode, use OperationTracker pattern (like handleStatus does)
+  const tracker = new OperationTracker(output);
+  await tracker.stackOperation(
+    "Creating stack",
+    async () => {
+      await stack.pushStack(options.autoPublish, options.force);
+      return { success: true };
+    },
+    {
+      successMessage: () => "Stack operation completed successfully",
+      showElapsed: true
+    }
+  );
 }
 
 async function handleStatus(stack: StackManager, options: CliOptions) {
