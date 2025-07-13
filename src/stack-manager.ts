@@ -31,7 +31,7 @@ export class StackManager {
     private config: ConfigManager,
     private git: GitManager,
     private github: GitHubManager,
-    private outputMode: 'compact' | 'verbose' = 'verbose'
+    private outputMode: 'compact' | 'verbose' = 'compact'
   ) {
     this.tracker = new OperationTracker(output);
   }
@@ -202,84 +202,107 @@ export class StackManager {
    * Uses git ranges to find commits ready to be pushed.
    */
   async getNewCommits(): Promise<GitCommit[]> {
-    startGroup("Finding New Commits", "git");
+    if (this.outputMode === 'compact') {
+      return await this.tracker.gitOperation(
+        "Finding new commits",
+        async () => {
+          return await this.findNewCommitsInternal();
+        },
+        {
+          successMessage: (commits) => `Found ${commits.length} new commits`
+        }
+      );
+    } else {
+      startGroup("Finding New Commits", "git");
+      const commits = await this.findNewCommitsInternal();
+      endGroup();
+      return commits;
+    }
+  }
 
-    try {
-      const config = await this.config.getAll();
-      const currentStack = await this.getCurrentStack();
+  /**
+   * Internal method to find new commits (used by both compact and verbose modes)
+   */
+  private async findNewCommitsInternal(): Promise<GitCommit[]> {
+    const config = await this.config.getAll();
+    const currentStack = await this.getCurrentStack();
 
+    if (this.outputMode === 'verbose') {
       logProgress("Determining base reference...");
+    }
 
-      // Build exclusion list: origin/main + all existing stack branches
-      const exclusions = [`origin/${config.defaultBranch}`];
+    // Build exclusion list: origin/main + all existing stack branches
+    const exclusions = [`origin/${config.defaultBranch}`];
 
-      // Add existing stack branches to exclusions
-      for (const pr of currentStack.prs) {
-        exclusions.push(`origin/${pr.branch}`);
-      }
+    // Add existing stack branches to exclusions
+    for (const pr of currentStack.prs) {
+      exclusions.push(`origin/${pr.branch}`);
+    }
 
+    if (this.outputMode === 'verbose') {
       logInfo(`Excluding commits from: ${exclusions.join(", ")}`, 1);
-
-      // Find commits that are on HEAD but not in any of the excluded refs
       logProgress("Scanning for new commits...");
+    }
 
-      let newCommits: GitCommit[] = [];
+    let newCommits: GitCommit[] = [];
 
-      // Try different strategies to find new commits
-      for (const exclusion of exclusions) {
-        try {
-          // Check if this ref exists
-          await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
+    // Try different strategies to find new commits
+    for (const exclusion of exclusions) {
+      try {
+        // Check if this ref exists
+        await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
 
-          // Get commits since this ref
-          const commitsFromThisRef = await this.git.getCommitsSince(exclusion);
+        // Get commits since this ref
+        const commitsFromThisRef = await this.git.getCommitsSince(exclusion);
 
-          if (commitsFromThisRef.length > 0) {
-            // Use the ref that gives us the smallest set of new commits
-            // (most recent starting point)
-            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
-              newCommits = commitsFromThisRef;
+        if (commitsFromThisRef.length > 0) {
+          // Use the ref that gives us the smallest set of new commits
+          // (most recent starting point)
+          if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+            newCommits = commitsFromThisRef;
+            if (this.outputMode === 'verbose') {
               logInfo(`Using ${exclusion} as base (${commitsFromThisRef.length} new commits)`, 1);
             }
           }
-        } catch {
-          // This ref doesn't exist, skip it
-          continue;
         }
+      } catch {
+        // This ref doesn't exist, skip it
+        continue;
       }
+    }
 
-      // If no exclusions worked, fall back to just origin/main
-      if (newCommits.length === 0) {
-        try {
-          newCommits = await this.git.getCommitsSince(`origin/${config.defaultBranch}`);
+    // If no exclusions worked, fall back to just origin/main
+    if (newCommits.length === 0) {
+      try {
+        newCommits = await this.git.getCommitsSince(`origin/${config.defaultBranch}`);
+        if (this.outputMode === 'verbose') {
           logInfo(`Falling back to origin/${config.defaultBranch}`, 1);
-        } catch {
-          // Last resort: get commits from a reasonable base
-          try {
-            const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
-            const baseRef = rootCommit.trim().split('\n')[0];
-            newCommits = await this.git.getCommitsSince(baseRef);
+        }
+      } catch {
+        // Last resort: get commits from a reasonable base
+        try {
+          const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+          const baseRef = rootCommit.trim().split('\n')[0];
+          newCommits = await this.git.getCommitsSince(baseRef);
+          if (this.outputMode === 'verbose') {
             logInfo(`Using root commit as base`, 1);
-          } catch {
-            newCommits = [];
           }
+        } catch {
+          newCommits = [];
         }
       }
+    }
 
+    if (this.outputMode === 'verbose') {
       logSuccess(`Found ${newCommits.length} new commits`);
 
       if (newCommits.length > 0) {
         const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
         output.logList(commitList, "New commits:", "info");
       }
-
-      endGroup();
-      return newCommits;
-
-    } catch (error) {
-      endGroup();
-      throw new Error(`Failed to find new commits: ${error}`);
     }
+
+    return newCommits;
   }
 
   /**
@@ -393,59 +416,87 @@ export class StackManager {
 
     // Fetch and rebase if configured
     if (config.autoRebase) {
-      startGroup("Fetching Latest Changes", "git");
-      logProgress("Fetching from origin...");
-      await this.git.fetchOrigin();
-      logSuccess("Fetched latest changes");
+      if (this.outputMode === 'compact') {
+        await this.tracker.gitOperation(
+          "Fetching latest changes",
+          async () => {
+            await this.git.fetchOrigin();
+            if (status.behind > 0) {
+              await this.git.rebaseOnto(config.defaultBranch);
+            }
+          },
+          {
+            successMessage: () => status.behind > 0 ? 
+              `Fetched and rebased ${status.behind} commits` : 
+              "Fetched latest changes"
+          }
+        );
+      } else {
+        startGroup("Fetching Latest Changes", "git");
+        logProgress("Fetching from origin...");
+        await this.git.fetchOrigin();
+        logSuccess("Fetched latest changes");
 
-      if (status.behind > 0) {
-        logProgress(`Rebasing ${status.behind} commits...`);
-        await this.git.rebaseOnto(config.defaultBranch);
-        logSuccess("Rebase completed");
+        if (status.behind > 0) {
+          logProgress(`Rebasing ${status.behind} commits...`);
+          await this.git.rebaseOnto(config.defaultBranch);
+          logSuccess("Rebase completed");
+        }
+        endGroup();
       }
-      endGroup();
     }
 
     // Get new commits using the GitHub-first approach
     const newCommits = await this.getNewCommits();
 
     if (newCommits.length === 0) {
-      logInfo("No new commits to process.");
+      if (this.outputMode === 'verbose') {
+        logInfo("No new commits to process.");
+      }
       return;
     }
 
-    startGroup("Processing Commits", "git");
-    logInfo(`Found ${newCommits.length} new commits to process.`);
+    if (this.outputMode === 'verbose') {
+      startGroup("Processing Commits", "git");
+      logInfo(`Found ${newCommits.length} new commits to process.`);
 
-    // List the commits being processed
-    const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
-    output.logList(commitList, "Commits to process:", "info");
-    endGroup();
+      // List the commits being processed
+      const commitList = newCommits.map(c => `${c.hash.slice(0, 7)}: ${c.message}`);
+      output.logList(commitList, "Commits to process:", "info");
+      endGroup();
+    }
 
     // Check for duplicate PRs with these commits
-    startGroup("Checking for Duplicate PRs", "github");
-    logProgress("Searching for existing PRs with these commits...");
-
     const commitShas = newCommits.map(c => c.hash);
     const existingPRs = await this.github.findPRsWithCommits(commitShas);
 
-    if (existingPRs.length > 0) {
-      const existingPR = existingPRs[0]; // Use the first matching PR
+    if (this.outputMode === 'compact') {
+      if (existingPRs.length > 0) {
+        const existingPR = existingPRs[0]; // Use the first matching PR
+        throw new Error(`These commits already exist in PR #${existingPR.number}: ${existingPR.title} (${existingPR.url})`);
+      }
+    } else {
+      startGroup("Checking for Duplicate PRs", "github");
+      logProgress("Searching for existing PRs with these commits...");
+
+      if (existingPRs.length > 0) {
+        const existingPR = existingPRs[0]; // Use the first matching PR
+        endGroup();
+
+        logWarning("❌ These commits already exist in an existing PR");
+        logInfo(`PR #${existingPR.number}: ${existingPR.title}`);
+        logInfo(`URL: ${existingPR.url}`);
+        logInfo(`Status: ${existingPR.status}`);
+        logInfo("");
+        logInfo("No new PR created. You can:");
+        logInfo(`  - Update PR #${existingPR.number} if needed`);
+        logInfo("  - Run 'rungs status' to see current PRs");
+        return;
+      }
+
+      logSuccess("No duplicate PRs found");
       endGroup();
-
-      logWarning("❌ These commits already exist in an existing PR");
-      logInfo(`PR #${existingPR.number}: ${existingPR.title}`);
-      logInfo(`URL: ${existingPR.url}`);
-      logInfo(`Status: ${existingPR.status}`);
-      logInfo("");
-      logInfo("No new PR created. You can:");
-      logInfo(`  - Update PR #${existingPR.number} if needed`);
-      logInfo("  - Run 'rungs status' to see current PRs");
-      return;
     }
-
-    logSuccess("No duplicate PRs found");
-    endGroup();
 
     // Create branch for the new commits
     const branchName = this.git.generateBranchName(newCommits, config.userPrefix, config.branchNaming);
@@ -455,53 +506,93 @@ export class StackManager {
       throw new Error(`Branch ${branchName} already exists. Please delete it or use a different naming strategy.`);
     }
 
-    startGroup("Creating Branch", "git");
-    logProgress(`Creating branch: ${branchName}`);
-    await this.git.createBranch(branchName);
+    if (this.outputMode === 'compact') {
+      // Create branch 
+      await this.tracker.gitOperation(
+        `Creating and pushing branch ${branchName}`,
+        async () => {
+          await this.git.createBranch(branchName);
+          await this.git.pushBranch(branchName);
+        }
+      );
 
-    logProgress("Pushing branch to remote...");
-    await this.git.pushBranch(branchName);
-    logSuccess("Branch created and pushed");
-    endGroup();
+      // Create PR
+      const prTitle = this.github.generatePRTitle(newCommits);
+      const prBody = this.github.generatePRBody(newCommits);
+      const currentStack = await this.getCurrentStack();
+      const baseBranch = currentStack.lastBranch || config.defaultBranch;
+      const isDraft = autoPublish ? false : config.draftPRs;
 
-    startGroup("Creating Pull Request", "github");
-    const prTitle = this.github.generatePRTitle(newCommits);
-    const prBody = this.github.generatePRBody(newCommits);
+      const pr = await this.tracker.githubOperation(
+        `Creating PR: ${prTitle}`,
+        async () => {
+          return await this.github.createPullRequest(
+            prTitle,
+            prBody,
+            branchName,
+            baseBranch,
+            isDraft
+          );
+        }
+      );
 
-    // Get current stack to determine base branch
-    const currentStack = await this.getCurrentStack();
-    const baseBranch = currentStack.lastBranch || config.defaultBranch;
+      // Finalize
+      await this.tracker.gitOperation(
+        "Returning to main branch",
+        async () => {
+          await this.git.checkoutBranch(config.defaultBranch);
+        }
+      );
 
-    logProgress(`Creating PR: "${prTitle}"`);
-    logInfo(`Base branch: ${baseBranch}`, 1);
+    } else {
+      startGroup("Creating Branch", "git");
+      logProgress(`Creating branch: ${branchName}`);
+      await this.git.createBranch(branchName);
 
-    const isDraft = autoPublish ? false : config.draftPRs;
-    logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
+      logProgress("Pushing branch to remote...");
+      await this.git.pushBranch(branchName);
+      logSuccess("Branch created and pushed");
+      endGroup();
 
-    const pr = await this.github.createPullRequest(
-      prTitle,
-      prBody,
-      branchName,
-      baseBranch,
-      isDraft
-    );
+      startGroup("Creating Pull Request", "github");
+      const prTitle = this.github.generatePRTitle(newCommits);
+      const prBody = this.github.generatePRBody(newCommits);
 
-    logSuccess(`Created pull request: ${pr.url}`);
-    endGroup();
+      // Get current stack to determine base branch
+      const currentStack = await this.getCurrentStack();
+      const baseBranch = currentStack.lastBranch || config.defaultBranch;
 
-    startGroup("Finalizing", "stack");
-    logProgress("Switching back to main branch...");
-    await this.git.checkoutBranch(config.defaultBranch);
-    logSuccess("Returned to main branch");
-    endGroup();
+      logProgress(`Creating PR: "${prTitle}"`);
+      logInfo(`Base branch: ${baseBranch}`, 1);
 
-    logSummary("Stack Created Successfully", [
-      { label: "Branch", value: branchName },
-      { label: "Pull Request", value: `#${pr.number}` },
-      { label: "URL", value: pr.url }
-    ]);
+      const isDraft = autoPublish ? false : config.draftPRs;
+      logInfo(`Draft mode: ${isDraft ? "Yes" : "No (published)"}`, 1);
 
-    logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs stack' again for additional commits.`);
+      const pr = await this.github.createPullRequest(
+        prTitle,
+        prBody,
+        branchName,
+        baseBranch,
+        isDraft
+      );
+
+      logSuccess(`Created pull request: ${pr.url}`);
+      endGroup();
+
+      startGroup("Finalizing", "stack");
+      logProgress("Switching back to main branch...");
+      await this.git.checkoutBranch(config.defaultBranch);
+      logSuccess("Returned to main branch");
+      endGroup();
+
+      logSummary("Stack Created Successfully", [
+        { label: "Branch", value: branchName },
+        { label: "Pull Request", value: `#${pr.number}` },
+        { label: "URL", value: pr.url }
+      ]);
+
+      logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs stack' again for additional commits.`);
+    }
   }
 
   /**
@@ -775,70 +866,81 @@ Stack Status (from GitHub):
    * Validate sync status with remote.
    */
   private async validateSyncStatus(defaultBranch: string): Promise<void> {
-    startGroup("Validating Sync Status", "git");
-
-    try {
-      logProgress("Checking sync status with remote...");
-      const syncResult = await this.git.getSyncStatus(defaultBranch);
-
-      if (syncResult.status === "clean") {
-        logSuccess("Local branch is in sync with remote");
-        endGroup();
-        return;
-      }
-
-      // Check for duplicate commits (merged commits that appear both locally and remotely)
-      const duplicateCheck = await this.git.detectDuplicateCommits(defaultBranch);
-
-      let errorMessage = "❌ Cannot create PR: Local branch is out of sync with remote\n\n";
-
-      switch (syncResult.status) {
-        case "ahead":
-          if (duplicateCheck.hasDuplicates) {
-            errorMessage += `Your local ${defaultBranch} has ${syncResult.aheadCount} commits that may already be merged into remote.\n`;
-            errorMessage += `Duplicate commit messages found:\n${duplicateCheck.duplicateMessages.map(msg => `  - ${msg}`).join('\n')}\n\n`;
-            errorMessage += "This would create a PR with merge conflicts.\n\n";
-            errorMessage += "To resolve:\n";
-            errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote state\n`;
-            errorMessage += `  git cherry-pick <specific-commits>         # Re-apply only new commits\n\n`;
-            errorMessage += "Or:\n";
-            errorMessage += `  git rebase origin/${defaultBranch}         # Rebase on top of remote\n\n`;
-          } else {
-            // Normal case: ahead with new commits - this is fine for creating PRs!
-            logInfo(`Local is ${syncResult.aheadCount} commits ahead with new changes - ready to create PR`);
-            endGroup();
-            return;
-          }
-          break;
-
-        case "behind":
-          errorMessage += `Your local ${defaultBranch} is ${syncResult.behindCount} commits behind remote.\n`;
-          errorMessage += "To resolve:\n";
-          errorMessage += `  git pull origin ${defaultBranch}            # Pull latest changes\n\n`;
-          break;
-
-        case "diverged":
-          errorMessage += `Your local ${defaultBranch} has diverged from remote:\n`;
-          errorMessage += `  - ${syncResult.aheadCount} commits ahead\n`;
-          errorMessage += `  - ${syncResult.behindCount} commits behind\n\n`;
-          errorMessage += "To resolve:\n";
-          errorMessage += `  git rebase origin/${defaultBranch}          # Rebase your changes on top\n`;
-          errorMessage += "Or:\n";
-          errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote (loses local changes)\n\n`;
-          break;
-      }
-
-      errorMessage += "Use --force to create PR anyway (not recommended)";
-
+    if (this.outputMode === 'compact') {
+      await this.tracker.gitOperation(
+        "Validating sync status",
+        async () => {
+          await this.validateSyncStatusInternal(defaultBranch);
+        }
+      );
+    } else {
+      startGroup("Validating Sync Status", "git");
+      await this.validateSyncStatusInternal(defaultBranch);
       endGroup();
-      throw new Error(errorMessage);
-
-    } catch (error) {
-      endGroup();
-      if (error instanceof Error && error.message.includes("Cannot create PR")) {
-        throw error; // Re-throw sync validation errors as-is
-      }
-      throw new Error(`Failed to validate sync status: ${error}`);
     }
+  }
+
+  /**
+   * Internal sync status validation
+   */
+  private async validateSyncStatusInternal(defaultBranch: string): Promise<void> {
+    if (this.outputMode === 'verbose') {
+      logProgress("Checking sync status with remote...");
+    }
+    
+    const syncResult = await this.git.getSyncStatus(defaultBranch);
+
+    if (syncResult.status === "clean") {
+      if (this.outputMode === 'verbose') {
+        logSuccess("Local branch is in sync with remote");
+      }
+      return;
+    }
+
+    // Check for duplicate commits (merged commits that appear both locally and remotely)
+    const duplicateCheck = await this.git.detectDuplicateCommits(defaultBranch);
+
+    let errorMessage = "❌ Cannot create PR: Local branch is out of sync with remote\n\n";
+
+    switch (syncResult.status) {
+      case "ahead":
+        if (duplicateCheck.hasDuplicates) {
+          errorMessage += `Your local ${defaultBranch} has ${syncResult.aheadCount} commits that may already be merged into remote.\n`;
+          errorMessage += `Duplicate commit messages found:\n${duplicateCheck.duplicateMessages.map(msg => `  - ${msg}`).join('\n')}\n\n`;
+          errorMessage += "This would create a PR with merge conflicts.\n\n";
+          errorMessage += "To resolve:\n";
+          errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote state\n`;
+          errorMessage += `  git cherry-pick <specific-commits>         # Re-apply only new commits\n\n`;
+          errorMessage += "Or:\n";
+          errorMessage += `  git rebase origin/${defaultBranch}         # Rebase on top of remote\n\n`;
+        } else {
+          // Normal case: ahead with new commits - this is fine for creating PRs!
+          if (this.outputMode === 'verbose') {
+            logInfo(`Local is ${syncResult.aheadCount} commits ahead with new changes - ready to create PR`);
+          }
+          return;
+        }
+        break;
+
+      case "behind":
+        errorMessage += `Your local ${defaultBranch} is ${syncResult.behindCount} commits behind remote.\n`;
+        errorMessage += "To resolve:\n";
+        errorMessage += `  git pull origin ${defaultBranch}            # Pull latest changes\n\n`;
+        break;
+
+      case "diverged":
+        errorMessage += `Your local ${defaultBranch} has diverged from remote:\n`;
+        errorMessage += `  - ${syncResult.aheadCount} commits ahead\n`;
+        errorMessage += `  - ${syncResult.behindCount} commits behind\n\n`;
+        errorMessage += "To resolve:\n";
+        errorMessage += `  git rebase origin/${defaultBranch}          # Rebase your changes on top\n`;
+        errorMessage += "Or:\n";
+        errorMessage += `  git reset --hard origin/${defaultBranch}    # Reset to remote (loses local changes)\n\n`;
+        break;
+    }
+
+    errorMessage += "Use --force to create PR anyway (not recommended)";
+
+    throw new Error(errorMessage);
   }
 }
