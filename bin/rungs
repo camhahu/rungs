@@ -2391,9 +2391,21 @@ async function handleMerge(stack, args, options) {
     output.error("PR number must be a valid integer");
     process.exit(1);
   }
-  output.startSection("Merge Pull Request", "github");
-  await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
-  output.endSection();
+  if (output.getOutputMode() === "verbose") {
+    output.startSection("Merge Pull Request", "github");
+    await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    output.endSection();
+    return;
+  }
+  const tracker = new OperationTracker(output);
+  const prText = prNumber ? `#${prNumber}` : "current branch's PR";
+  await tracker.githubOperation(`Merging PR ${prText}`, async () => {
+    await stack.mergePullRequest(prNumber, mergeMethod, deleteBranch);
+    return { success: true };
+  }, {
+    successMessage: () => `Successfully merged PR ${prText}`,
+    showElapsed: true
+  });
 }
 async function handleRebase(stack, args, options) {
   output.startSection("Rebase Stack", "stack");

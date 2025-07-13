@@ -15,10 +15,6 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - [x] Failing tests - Fixed operation-tracker.ts defensive programming issues causing "TypeError: this.output.failOperation is not a function" errors in auto-publish.test.ts (all 186 tests now pass)
 
-
-### Rungs merge doesn't respect compact by default
-- The `rungs merge` output is still verbose. Make sure it respect compact by default and verbose if explicitly provided. 
-
 ### Commit mistakenly identified as not belonging to an open stack
 - A commit is mistakenly identified as not belonging to an open stack after stack was rebased after previous stack was merged
   - I had two commits and two open PRs/stacks respectively
