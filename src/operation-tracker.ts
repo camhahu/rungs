@@ -37,7 +37,11 @@ export class OperationTracker {
     
     try {
       // Start the operation
-      this.output.startOperation(id, description, type);
+      if (typeof this.output.startOperation === 'function') {
+        this.output.startOperation(id, description, type);
+      } else {
+        console.log(`Starting: ${description}`);
+      }
       
       // Execute the operation
       const result = await operation();
@@ -50,7 +54,11 @@ export class OperationTracker {
       }
       
       // Complete successfully
-      this.output.completeOperation(id, successMessage, 'success');
+      if (typeof this.output.completeOperation === 'function') {
+        this.output.completeOperation(id, successMessage, 'success');
+      } else {
+        console.log(`✅ ${successMessage}`);
+      }
       
       return result;
     } catch (error) {
@@ -60,7 +68,14 @@ export class OperationTracker {
         : `${description} failed`;
       
       const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
+      
+      // Defensive check: ensure failOperation method exists
+      if (typeof this.output.failOperation === 'function') {
+        this.output.failOperation(id, errorMessage, errorDetail);
+      } else {
+        // Fallback to basic error logging if failOperation is not available
+        console.error(`${errorMessage}: ${errorDetail}`);
+      }
       
       throw error;
     }
@@ -80,7 +95,11 @@ export class OperationTracker {
     
     try {
       // Start the operation
-      this.output.startOperation(id, description, type);
+      if (typeof this.output.startOperation === 'function') {
+        this.output.startOperation(id, description, type);
+      } else {
+        console.log(`Starting: ${description}`);
+      }
       
       // Execute the operation
       const result = operation();
@@ -93,7 +112,11 @@ export class OperationTracker {
       }
       
       // Complete successfully
-      this.output.completeOperation(id, successMessage, 'success');
+      if (typeof this.output.completeOperation === 'function') {
+        this.output.completeOperation(id, successMessage, 'success');
+      } else {
+        console.log(`✅ ${successMessage}`);
+      }
       
       return result;
     } catch (error) {
@@ -103,7 +126,14 @@ export class OperationTracker {
         : `${description} failed`;
       
       const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
+      
+      // Defensive check: ensure failOperation method exists
+      if (typeof this.output.failOperation === 'function') {
+        this.output.failOperation(id, errorMessage, errorDetail);
+      } else {
+        // Fallback to basic error logging if failOperation is not available
+        console.error(`${errorMessage}: ${errorDetail}`);
+      }
       
       throw error;
     }
@@ -216,7 +246,11 @@ export class OperationTracker {
    * Update an active operation's description
    */
   updateOperation(id: string, newDescription: string): void {
-    this.output.updateOperation(id, newDescription);
+    if (typeof this.output.updateOperation === 'function') {
+      this.output.updateOperation(id, newDescription);
+    } else {
+      console.log(`Update: ${newDescription}`);
+    }
   }
 
   /**
@@ -224,7 +258,11 @@ export class OperationTracker {
    */
   startOperation(description: string, type: OperationType = 'general'): string {
     const id = this.createOperationId(type);
-    this.output.startOperation(id, description, type);
+    if (typeof this.output.startOperation === 'function') {
+      this.output.startOperation(id, description, type);
+    } else {
+      console.log(`Starting: ${description}`);
+    }
     return id;
   }
 
@@ -232,14 +270,26 @@ export class OperationTracker {
    * Manually complete an operation
    */
   completeOperation(id: string, message?: string, level: LogLevel = 'success'): void {
-    this.output.completeOperation(id, message || 'Completed', level);
+    if (typeof this.output.completeOperation === 'function') {
+      this.output.completeOperation(id, message || 'Completed', level);
+    } else {
+      const icon = level === 'success' ? '✅' : level === 'error' ? '❌' : '⚠️';
+      console.log(`${icon} ${message || 'Completed'}`);
+    }
   }
 
   /**
    * Manually fail an operation
    */
   failOperation(id: string, message: string, error?: string): void {
-    this.output.failOperation(id, message, error);
+    // Defensive check: ensure failOperation method exists
+    if (typeof this.output.failOperation === 'function') {
+      this.output.failOperation(id, message, error);
+    } else {
+      // Fallback to basic error logging if failOperation is not available
+      const errorMessage = error ? `${message}: ${error}` : message;
+      console.error(errorMessage);
+    }
   }
 
   /**

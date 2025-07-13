@@ -1344,38 +1344,62 @@ class OperationTracker {
   async executeOperation(id, description, type, operation, options = {}) {
     const startTime = Date.now();
     try {
-      this.output.startOperation(id, description, type);
+      if (typeof this.output.startOperation === "function") {
+        this.output.startOperation(id, description, type);
+      } else {
+        console.log(`Starting: ${description}`);
+      }
       const result = await operation();
       let successMessage = options.successMessage ? options.successMessage(result) : description;
       if (options.showElapsed) {
         const elapsed = Date.now() - startTime;
         successMessage += ` (${elapsed}ms)`;
       }
-      this.output.completeOperation(id, successMessage, "success");
+      if (typeof this.output.completeOperation === "function") {
+        this.output.completeOperation(id, successMessage, "success");
+      } else {
+        console.log(`\u2705 ${successMessage}`);
+      }
       return result;
     } catch (error) {
       const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
       const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
+      if (typeof this.output.failOperation === "function") {
+        this.output.failOperation(id, errorMessage, errorDetail);
+      } else {
+        console.error(`${errorMessage}: ${errorDetail}`);
+      }
       throw error;
     }
   }
   executeOperationSync(id, description, type, operation, options = {}) {
     const startTime = Date.now();
     try {
-      this.output.startOperation(id, description, type);
+      if (typeof this.output.startOperation === "function") {
+        this.output.startOperation(id, description, type);
+      } else {
+        console.log(`Starting: ${description}`);
+      }
       const result = operation();
       let successMessage = options.successMessage ? options.successMessage(result) : description;
       if (options.showElapsed) {
         const elapsed = Date.now() - startTime;
         successMessage += ` (${elapsed}ms)`;
       }
-      this.output.completeOperation(id, successMessage, "success");
+      if (typeof this.output.completeOperation === "function") {
+        this.output.completeOperation(id, successMessage, "success");
+      } else {
+        console.log(`\u2705 ${successMessage}`);
+      }
       return result;
     } catch (error) {
       const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
       const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
+      if (typeof this.output.failOperation === "function") {
+        this.output.failOperation(id, errorMessage, errorDetail);
+      } else {
+        console.error(`${errorMessage}: ${errorDetail}`);
+      }
       throw error;
     }
   }
@@ -1415,18 +1439,36 @@ class OperationTracker {
     return this.executeOperationSync(id, description, "stack", operation, options);
   }
   updateOperation(id, newDescription) {
-    this.output.updateOperation(id, newDescription);
+    if (typeof this.output.updateOperation === "function") {
+      this.output.updateOperation(id, newDescription);
+    } else {
+      console.log(`Update: ${newDescription}`);
+    }
   }
   startOperation(description, type = "general") {
     const id = this.createOperationId(type);
-    this.output.startOperation(id, description, type);
+    if (typeof this.output.startOperation === "function") {
+      this.output.startOperation(id, description, type);
+    } else {
+      console.log(`Starting: ${description}`);
+    }
     return id;
   }
   completeOperation(id, message, level = "success") {
-    this.output.completeOperation(id, message || "Completed", level);
+    if (typeof this.output.completeOperation === "function") {
+      this.output.completeOperation(id, message || "Completed", level);
+    } else {
+      const icon = level === "success" ? "\u2705" : level === "error" ? "\u274C" : "\u26A0\uFE0F";
+      console.log(`${icon} ${message || "Completed"}`);
+    }
   }
   failOperation(id, message, error) {
-    this.output.failOperation(id, message, error);
+    if (typeof this.output.failOperation === "function") {
+      this.output.failOperation(id, message, error);
+    } else {
+      const errorMessage = error ? `${message}: ${error}` : message;
+      console.error(errorMessage);
+    }
   }
   async executeSequence(operations) {
     const results = [];
