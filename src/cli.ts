@@ -101,7 +101,7 @@ async function main() {
     // Future enhancement: Add method to update output manager configuration dynamically
     const git = new GitManager();
     const github = new GitHubManager();
-    const stack = new StackManager(config, git, github);
+    const stack = new StackManager(config, git, github, outputMode);
 
     switch (command) {
       case "stack":

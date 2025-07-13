@@ -2,6 +2,7 @@ import { ConfigManager } from "./config-manager.js";
 import { GitManager, GitCommit } from "./git-manager.js";
 import { GitHubManager, PullRequest } from "./github-manager.js";
 import { output, startGroup, endGroup, logProgress, logSuccess, logWarning, logInfo, logSummary } from "./output-manager.js";
+import { OperationTracker } from "./operation-tracker.js";
 
 export interface StackPR {
   number: number;
@@ -24,11 +25,16 @@ export interface StackState {
  * Eliminates local state files and discovers stack information from GitHub.
  */
 export class StackManager {
+  private tracker: OperationTracker;
+
   constructor(
     private config: ConfigManager,
     private git: GitManager,
-    private github: GitHubManager
-  ) { }
+    private github: GitHubManager,
+    private outputMode: 'compact' | 'verbose' = 'verbose'
+  ) {
+    this.tracker = new OperationTracker(output);
+  }
 
   async ensurePrerequisites(): Promise<void> {
     // Check if we're in a git repository
@@ -51,73 +57,123 @@ export class StackManager {
    * and building the topological order from base->head chains.
    */
   async getCurrentStack(): Promise<StackState> {
-    startGroup("Discovering Stack from GitHub", "github");
+    if (this.outputMode === 'compact') {
+      return await this.tracker.githubOperation(
+        "Discovering stack from GitHub",
+        async () => {
+          const config = await this.config.getAll();
 
-    try {
-      const config = await this.config.getAll();
-      logProgress("Fetching open PRs...");
+          // Get all open PRs authored by current user
+          const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+          const allPRs = JSON.parse(result) as Array<{
+            number: number;
+            title: string;
+            url: string;
+            headRefName: string;
+            baseRefName: string;
+          }>;
 
-      // Get all open PRs authored by current user
-      const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
-      const allPRs = JSON.parse(result) as Array<{
-        number: number;
-        title: string;
-        url: string;
-        headRefName: string;
-        baseRefName: string;
-      }>;
+          // Filter PRs by user prefix to identify stack PRs
+          const stackPRs = allPRs.filter(pr =>
+            pr.headRefName.startsWith(config.userPrefix + "/")
+          );
 
-      // Filter PRs by user prefix to identify stack PRs
-      const stackPRs = allPRs.filter(pr =>
-        pr.headRefName.startsWith(config.userPrefix + "/")
+          if (stackPRs.length === 0) {
+            return { prs: [], totalCommits: 0 };
+          }
+
+          // Build topological order by following base->head chains
+          const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+
+          // Auto-fix any broken base chains
+          const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+
+          const stackState: StackState = {
+            prs: fixedPRs.map(pr => ({
+              number: pr.number,
+              branch: pr.headRefName,
+              title: pr.title,
+              url: pr.url,
+              base: pr.baseRefName,
+              head: pr.headRefName
+            })),
+            totalCommits: 0, // Will be calculated when needed
+            lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+          };
+
+          return stackState;
+        }
       );
+    } else {
+      // Verbose mode - use traditional logging
+      startGroup("Discovering Stack from GitHub", "github");
 
-      logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
+      try {
+        const config = await this.config.getAll();
+        logProgress("Fetching open PRs...");
 
-      if (stackPRs.length === 0) {
-        endGroup();
-        return { prs: [], totalCommits: 0 };
-      }
+        // Get all open PRs authored by current user
+        const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+        const allPRs = JSON.parse(result) as Array<{
+          number: number;
+          title: string;
+          url: string;
+          headRefName: string;
+          baseRefName: string;
+        }>;
 
-      logProgress("Building stack order from base chains...");
-
-      // Build topological order by following base->head chains
-      const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
-
-      logProgress("Validating and auto-fixing broken chains...");
-
-      // Auto-fix any broken base chains
-      const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
-
-      const stackState: StackState = {
-        prs: fixedPRs.map(pr => ({
-          number: pr.number,
-          branch: pr.headRefName,
-          title: pr.title,
-          url: pr.url,
-          base: pr.baseRefName,
-          head: pr.headRefName
-        })),
-        totalCommits: 0, // Will be calculated when needed
-        lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
-      };
-
-      logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
-
-      // Log the stack order
-      if (fixedPRs.length > 0) {
-        const stackOrder = fixedPRs.map((pr, i) =>
-          `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`
+        // Filter PRs by user prefix to identify stack PRs
+        const stackPRs = allPRs.filter(pr =>
+          pr.headRefName.startsWith(config.userPrefix + "/")
         );
-        output.logList(stackOrder, "Stack Order:", "info");
+
+        logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
+
+        if (stackPRs.length === 0) {
+          endGroup();
+          return { prs: [], totalCommits: 0 };
+        }
+
+        logProgress("Building stack order from base chains...");
+
+        // Build topological order by following base->head chains
+        const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+
+        logProgress("Validating and auto-fixing broken chains...");
+
+        // Auto-fix any broken base chains
+        const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+
+        const stackState: StackState = {
+          prs: fixedPRs.map(pr => ({
+            number: pr.number,
+            branch: pr.headRefName,
+            title: pr.title,
+            url: pr.url,
+            base: pr.baseRefName,
+            head: pr.headRefName
+          })),
+          totalCommits: 0, // Will be calculated when needed
+          lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+        };
+
+        logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
+
+        // Log the stack order
+        if (fixedPRs.length > 0) {
+          const stackOrder = fixedPRs.map((pr, i) =>
+            `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`
+          );
+          output.logList(stackOrder, "Stack Order:", "info");
+        }
+
+        endGroup();
+        return stackState;
+
+      } catch (error) {
+        endGroup();
+        throw new Error(`Failed to discover stack from GitHub: ${error}`);
       }
-
-      endGroup();
-      return stackState;
-
-    } catch (error) {
-      endGroup();
-      throw new Error(`Failed to discover stack from GitHub: ${error}`);
     }
   }
 

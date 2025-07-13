@@ -1265,15 +1265,130 @@ function setOutputMode(mode) {
   output.setOutputMode(mode);
 }
 
+// src/operation-tracker.ts
+class OperationTracker {
+  output;
+  operationCounter = 0;
+  constructor(output2) {
+    this.output = output2;
+  }
+  async executeOperation(id, description, type, operation, options = {}) {
+    const startTime = Date.now();
+    try {
+      this.output.startOperation(id, description, type);
+      const result = await operation();
+      let successMessage = options.successMessage ? options.successMessage(result) : description;
+      if (options.showElapsed) {
+        const elapsed = Date.now() - startTime;
+        successMessage += ` (${elapsed}ms)`;
+      }
+      this.output.completeOperation(id, successMessage, "success");
+      return result;
+    } catch (error) {
+      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      this.output.failOperation(id, errorMessage, errorDetail);
+      throw error;
+    }
+  }
+  executeOperationSync(id, description, type, operation, options = {}) {
+    const startTime = Date.now();
+    try {
+      this.output.startOperation(id, description, type);
+      const result = operation();
+      let successMessage = options.successMessage ? options.successMessage(result) : description;
+      if (options.showElapsed) {
+        const elapsed = Date.now() - startTime;
+        successMessage += ` (${elapsed}ms)`;
+      }
+      this.output.completeOperation(id, successMessage, "success");
+      return result;
+    } catch (error) {
+      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      this.output.failOperation(id, errorMessage, errorDetail);
+      throw error;
+    }
+  }
+  createOperationId(prefix) {
+    return `${prefix}-${++this.operationCounter}-${Date.now()}`;
+  }
+  async gitOperation(description, operation, options = {}) {
+    const id = this.createOperationId("git");
+    return this.executeOperation(id, description, "git", operation, options);
+  }
+  async githubOperation(description, operation, options = {}) {
+    const id = this.createOperationId("github");
+    return this.executeOperation(id, description, "github", operation, options);
+  }
+  async stackOperation(description, operation, options = {}) {
+    const id = this.createOperationId("stack");
+    return this.executeOperation(id, description, "stack", operation, options);
+  }
+  async configOperation(description, operation, options = {}) {
+    const id = this.createOperationId("config");
+    return this.executeOperation(id, description, "config", operation, options);
+  }
+  async generalOperation(description, operation, options = {}) {
+    const id = this.createOperationId("general");
+    return this.executeOperation(id, description, "general", operation, options);
+  }
+  gitOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("git");
+    return this.executeOperationSync(id, description, "git", operation, options);
+  }
+  githubOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("github");
+    return this.executeOperationSync(id, description, "github", operation, options);
+  }
+  stackOperationSync(description, operation, options = {}) {
+    const id = this.createOperationId("stack");
+    return this.executeOperationSync(id, description, "stack", operation, options);
+  }
+  updateOperation(id, newDescription) {
+    this.output.updateOperation(id, newDescription);
+  }
+  startOperation(description, type = "general") {
+    const id = this.createOperationId(type);
+    this.output.startOperation(id, description, type);
+    return id;
+  }
+  completeOperation(id, message, level = "success") {
+    this.output.completeOperation(id, message || "Completed", level);
+  }
+  failOperation(id, message, error) {
+    this.output.failOperation(id, message, error);
+  }
+  async executeSequence(operations) {
+    const results = [];
+    for (const op of operations) {
+      const result = await this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {});
+      results.push(result);
+    }
+    return results;
+  }
+  async executeParallel(operations) {
+    const promises = operations.map((op) => this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {}));
+    return Promise.all(promises);
+  }
+  getOutputManager() {
+    return this.output;
+  }
+}
+
 // src/stack-manager.ts
 class StackManager {
   config;
   git;
   github;
-  constructor(config, git, github) {
+  outputMode;
+  tracker;
+  constructor(config, git, github, outputMode = "verbose") {
     this.config = config;
     this.git = git;
     this.github = github;
+    this.outputMode = outputMode;
+    this.tracker = new OperationTracker(output);
   }
   async ensurePrerequisites() {
     if (!await this.git.isGitRepo()) {
@@ -1287,44 +1402,71 @@ class StackManager {
     }
   }
   async getCurrentStack() {
-    startGroup("Discovering Stack from GitHub", "github");
-    try {
-      const config = await this.config.getAll();
-      logProgress("Fetching open PRs...");
-      const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
-      const allPRs = JSON.parse(result);
-      const stackPRs = allPRs.filter((pr) => pr.headRefName.startsWith(config.userPrefix + "/"));
-      logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
-      if (stackPRs.length === 0) {
+    if (this.outputMode === "compact") {
+      return await this.tracker.githubOperation("Discovering stack from GitHub", async () => {
+        const config = await this.config.getAll();
+        const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+        const allPRs = JSON.parse(result);
+        const stackPRs = allPRs.filter((pr) => pr.headRefName.startsWith(config.userPrefix + "/"));
+        if (stackPRs.length === 0) {
+          return { prs: [], totalCommits: 0 };
+        }
+        const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+        const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+        const stackState = {
+          prs: fixedPRs.map((pr) => ({
+            number: pr.number,
+            branch: pr.headRefName,
+            title: pr.title,
+            url: pr.url,
+            base: pr.baseRefName,
+            head: pr.headRefName
+          })),
+          totalCommits: 0,
+          lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+        };
+        return stackState;
+      });
+    } else {
+      startGroup("Discovering Stack from GitHub", "github");
+      try {
+        const config = await this.config.getAll();
+        logProgress("Fetching open PRs...");
+        const result = await Bun.$`gh pr list --author @me --state open --json number,title,url,headRefName,baseRefName`.text();
+        const allPRs = JSON.parse(result);
+        const stackPRs = allPRs.filter((pr) => pr.headRefName.startsWith(config.userPrefix + "/"));
+        logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
+        if (stackPRs.length === 0) {
+          endGroup();
+          return { prs: [], totalCommits: 0 };
+        }
+        logProgress("Building stack order from base chains...");
+        const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
+        logProgress("Validating and auto-fixing broken chains...");
+        const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+        const stackState = {
+          prs: fixedPRs.map((pr) => ({
+            number: pr.number,
+            branch: pr.headRefName,
+            title: pr.title,
+            url: pr.url,
+            base: pr.baseRefName,
+            head: pr.headRefName
+          })),
+          totalCommits: 0,
+          lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
+        };
+        logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
+        if (fixedPRs.length > 0) {
+          const stackOrder = fixedPRs.map((pr, i) => `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`);
+          output.logList(stackOrder, "Stack Order:", "info");
+        }
         endGroup();
-        return { prs: [], totalCommits: 0 };
+        return stackState;
+      } catch (error) {
+        endGroup();
+        throw new Error(`Failed to discover stack from GitHub: ${error}`);
       }
-      logProgress("Building stack order from base chains...");
-      const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
-      logProgress("Validating and auto-fixing broken chains...");
-      const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
-      const stackState = {
-        prs: fixedPRs.map((pr) => ({
-          number: pr.number,
-          branch: pr.headRefName,
-          title: pr.title,
-          url: pr.url,
-          base: pr.baseRefName,
-          head: pr.headRefName
-        })),
-        totalCommits: 0,
-        lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
-      };
-      logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
-      if (fixedPRs.length > 0) {
-        const stackOrder = fixedPRs.map((pr, i) => `${i + 1}. PR #${pr.number}: ${pr.headRefName} <- ${pr.baseRefName}`);
-        output.logList(stackOrder, "Stack Order:", "info");
-      }
-      endGroup();
-      return stackState;
-    } catch (error) {
-      endGroup();
-      throw new Error(`Failed to discover stack from GitHub: ${error}`);
     }
   }
   async getNewCommits() {
@@ -1751,117 +1893,6 @@ ${duplicateCheck.duplicateMessages.map((msg) => `  - ${msg}`).join(`
   }
 }
 
-// src/operation-tracker.ts
-class OperationTracker {
-  output;
-  operationCounter = 0;
-  constructor(output2) {
-    this.output = output2;
-  }
-  async executeOperation(id, description, type, operation, options = {}) {
-    const startTime = Date.now();
-    try {
-      this.output.startOperation(id, description, type);
-      const result = await operation();
-      let successMessage = options.successMessage ? options.successMessage(result) : description;
-      if (options.showElapsed) {
-        const elapsed = Date.now() - startTime;
-        successMessage += ` (${elapsed}ms)`;
-      }
-      this.output.completeOperation(id, successMessage, "success");
-      return result;
-    } catch (error) {
-      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
-      const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
-      throw error;
-    }
-  }
-  executeOperationSync(id, description, type, operation, options = {}) {
-    const startTime = Date.now();
-    try {
-      this.output.startOperation(id, description, type);
-      const result = operation();
-      let successMessage = options.successMessage ? options.successMessage(result) : description;
-      if (options.showElapsed) {
-        const elapsed = Date.now() - startTime;
-        successMessage += ` (${elapsed}ms)`;
-      }
-      this.output.completeOperation(id, successMessage, "success");
-      return result;
-    } catch (error) {
-      const errorMessage = options.errorMessage && error instanceof Error ? options.errorMessage(error) : `${description} failed`;
-      const errorDetail = error instanceof Error ? error.message : String(error);
-      this.output.failOperation(id, errorMessage, errorDetail);
-      throw error;
-    }
-  }
-  createOperationId(prefix) {
-    return `${prefix}-${++this.operationCounter}-${Date.now()}`;
-  }
-  async gitOperation(description, operation, options = {}) {
-    const id = this.createOperationId("git");
-    return this.executeOperation(id, description, "git", operation, options);
-  }
-  async githubOperation(description, operation, options = {}) {
-    const id = this.createOperationId("github");
-    return this.executeOperation(id, description, "github", operation, options);
-  }
-  async stackOperation(description, operation, options = {}) {
-    const id = this.createOperationId("stack");
-    return this.executeOperation(id, description, "stack", operation, options);
-  }
-  async configOperation(description, operation, options = {}) {
-    const id = this.createOperationId("config");
-    return this.executeOperation(id, description, "config", operation, options);
-  }
-  async generalOperation(description, operation, options = {}) {
-    const id = this.createOperationId("general");
-    return this.executeOperation(id, description, "general", operation, options);
-  }
-  gitOperationSync(description, operation, options = {}) {
-    const id = this.createOperationId("git");
-    return this.executeOperationSync(id, description, "git", operation, options);
-  }
-  githubOperationSync(description, operation, options = {}) {
-    const id = this.createOperationId("github");
-    return this.executeOperationSync(id, description, "github", operation, options);
-  }
-  stackOperationSync(description, operation, options = {}) {
-    const id = this.createOperationId("stack");
-    return this.executeOperationSync(id, description, "stack", operation, options);
-  }
-  updateOperation(id, newDescription) {
-    this.output.updateOperation(id, newDescription);
-  }
-  startOperation(description, type = "general") {
-    const id = this.createOperationId(type);
-    this.output.startOperation(id, description, type);
-    return id;
-  }
-  completeOperation(id, message, level = "success") {
-    this.output.completeOperation(id, message || "Completed", level);
-  }
-  failOperation(id, message, error) {
-    this.output.failOperation(id, message, error);
-  }
-  async executeSequence(operations) {
-    const results = [];
-    for (const op of operations) {
-      const result = await this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {});
-      results.push(result);
-    }
-    return results;
-  }
-  async executeParallel(operations) {
-    const promises = operations.map((op) => this.executeOperation(this.createOperationId(op.type), op.description, op.type, op.operation, op.options || {}));
-    return Promise.all(promises);
-  }
-  getOutputManager() {
-    return this.output;
-  }
-}
-
 // src/cli.ts
 var COMMANDS = {
   stack: "Create a new stack or add commits to existing stack",
@@ -1925,7 +1956,7 @@ async function main() {
     }
     const git = new GitManager;
     const github = new GitHubManager;
-    const stack = new StackManager(config, git, github);
+    const stack = new StackManager(config, git, github, outputMode);
     switch (command) {
       case "stack":
         await handlePush(stack, args, options);
