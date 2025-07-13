@@ -159,6 +159,121 @@ describe('OutputManager Compact Mode', () => {
   });
 });
 
+describe('Compact Mode Status Command Regression', () => {
+  let output: OutputManager;
+  let tracker: OperationTracker;
+  let originalConsoleLog: typeof console.log;
+  let capturedOutput: string[];
+
+  beforeEach(() => {
+    // Capture console.log output
+    originalConsoleLog = console.log;
+    capturedOutput = [];
+    console.log = (...args: any[]) => {
+      capturedOutput.push(args.map(arg => String(arg)).join(' '));
+    };
+
+    output = new OutputManager({
+      outputMode: 'compact',
+      useColors: false,
+      spinnerStyle: 'none',
+      maxLineLength: 80,
+      showTimestamps: false,
+      showElapsedTime: false,
+      verboseMode: false
+    });
+    
+    tracker = new OperationTracker(output);
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+  });
+
+  test('should handle StackState object in success callback for compact mode', async () => {
+    // Mock StackState object that getCurrentStack() would return
+    const mockStackState = {
+      prs: [
+        { number: 123, branch: 'feature/test', title: 'Test PR', url: 'https://github.com/test/test/pull/123', base: 'main', head: 'feature/test' },
+        { number: 124, branch: 'feature/test2', title: 'Test PR 2', url: 'https://github.com/test/test/pull/124', base: 'feature/test', head: 'feature/test2' }
+      ],
+      totalCommits: 5
+    };
+
+    // Test that the success callback can access result.prs.length and result.totalCommits
+    // This would previously fail with "undefined is not an object (evaluating 'result.prs.length')"
+    const result = await tracker.stackOperation(
+      "Retrieving stack status",
+      async () => {
+        return mockStackState;
+      },
+      {
+        successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+        showElapsed: true
+      }
+    );
+
+    // Verify the operation returns the correct StackState object
+    expect(result).toEqual(mockStackState);
+    expect(result.prs).toHaveLength(2);
+    expect(result.totalCommits).toBe(5);
+    expect(result.prs[0].number).toBe(123);
+    expect(result.prs[1].number).toBe(124);
+  });
+
+  test('should handle empty StackState object in success callback', async () => {
+    // Mock empty StackState object (no PRs)
+    const mockEmptyStackState = {
+      prs: [],
+      totalCommits: 0
+    };
+
+    const result = await tracker.stackOperation(
+      "Retrieving stack status",
+      async () => {
+        return mockEmptyStackState;
+      },
+      {
+        successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+        showElapsed: true
+      }
+    );
+
+    // Verify the operation handles empty state correctly
+    expect(result).toEqual(mockEmptyStackState);
+    expect(result.prs).toHaveLength(0);
+    expect(result.totalCommits).toBe(0);
+  });
+
+  test('should fail when success callback tries to access properties on string (old bug)', async () => {
+    // This test demonstrates the bug that was fixed - when a string is returned instead of StackState
+    const mockStringResult = "Current Status:\n- Branch: main\n- Clean: Yes\n- Stack Status: 2 PRs";
+
+    try {
+      await tracker.stackOperation(
+        "Retrieving stack status",
+        async () => {
+          return mockStringResult; // Returns string instead of StackState
+        },
+        {
+          successMessage: (result: any) => {
+            // This will try to access .prs on a string, which should fail
+            return `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`;
+          },
+          showElapsed: true
+        }
+      );
+      // If we reach here, the test should fail because we expected an error
+      expect(true).toBe(false);
+    } catch (error) {
+      // This error demonstrates the original bug
+      expect(error).toBeInstanceOf(TypeError);
+      // The error message may vary between different JavaScript engines
+      expect((error as Error).message).toMatch(/Cannot read propert(y|ies)|undefined is not an object/);
+    }
+  });
+});
+
 describe('OperationTracker Integration', () => {
   let output: OutputManager;
   let tracker: OperationTracker;

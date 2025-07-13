@@ -2007,18 +2007,25 @@ async function handleStatus(stack, options) {
   try {
     if (output.getOutputMode() === "verbose") {
       output.startSection("Stack Status", "stack");
-      const status2 = await stack.getStatus();
-      console.log(status2);
+      const status = await stack.getStatus();
+      console.log(status);
       output.endSection();
       return;
     }
-    const status = await tracker.stackOperation("Retrieving stack status", async () => {
-      return await stack.getStatus();
+    const stackState = await tracker.stackOperation("Retrieving stack status", async () => {
+      return await stack.getCurrentStack();
     }, {
       successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
       showElapsed: true
     });
-    console.log(status);
+    if (stackState.prs.length > 0) {
+      console.log(`Stack Status: ${stackState.prs.length} PRs, ${stackState.totalCommits} commits`);
+      stackState.prs.forEach((pr, i) => {
+        console.log(`  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`);
+      });
+    } else {
+      console.log("Stack Status: No active PRs");
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     output.error(`Failed to get stack status: ${errorMessage}`);

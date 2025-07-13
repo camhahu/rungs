@@ -197,10 +197,10 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
     }
     
     // In compact mode, use operation-based approach
-    const status = await tracker.stackOperation(
+    const stackState = await tracker.stackOperation(
       "Retrieving stack status",
       async () => {
-        return await stack.getStatus();
+        return await stack.getCurrentStack();
       },
       {
         successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
@@ -208,8 +208,15 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
       }
     );
     
-    // Display the status information
-    console.log(status);
+    // Display the status information in compact format
+    if (stackState.prs.length > 0) {
+      console.log(`Stack Status: ${stackState.prs.length} PRs, ${stackState.totalCommits} commits`);
+      stackState.prs.forEach((pr, i) => {
+        console.log(`  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`);
+      });
+    } else {
+      console.log("Stack Status: No active PRs");
+    }
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
