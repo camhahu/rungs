@@ -14,6 +14,27 @@ This document tracks all work items needed to implement the rungs CLI project.
 - `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
 
 
+- This strange output from rungs status
+```
+
+PR #79: Add more bugs and issues → https://github.com/camhahu/rungs/pull/79
+  Base: camhahu/implement-compact-mode-line-replacement-for-improv
+  a60b6f9 Add more bugs and issues
+
+PR #80: Add issues → https://github.com/camhahu/rungs/pull/80
+  Base: camhahu/add-more-bugs-and-issues
+  e20b19a Add issues
+
+PR #81: Improve rungs status output with commit details and PR links → https://github.com/camhahu/rungs/pull/81
+  Base: camhahu/add-issues
+  7687399 Improve rungs status output with commit details and PR links
+
+New Commits (ready to push): 1
+  7687399 Improve rungs status output with commit details and PR links
+```
+- It says there are new commits to push but also that commit is in PR 81 (already stacked)
+
+
 ## Features
 - [x] The CLI output is too long and hard to read. Each discrete 'step' of the CLI command should only really take up 1 line of output, then you know each line should 'replace itself' like some CLIs do.
   - [x] Use of consistent colour for loading states/completed states/error states
