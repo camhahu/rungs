@@ -61,7 +61,9 @@ rungs status [options]
 **Behavior:**
 - Automatically syncs with GitHub before showing status
 - Shows current stack with PR information
-- Displays commit information and GitHub PR links
+- Displays individual commit details (SHA + description) for each PR
+- Shows clickable PR URLs for easy access
+- Displays unstacked commits separately (commits not in any PR)
 - Indicates which PRs are merged/draft/ready
 
 #### `rungs config`
@@ -285,9 +287,10 @@ rungs push
 # Check current state (with GitHub sync)
 rungs status
 # Output shows:
-# - Current stack status
-# - PR information with GitHub state
-# - Local commits ahead of base branch
+# - Current stack status with individual commit details
+# - PR information with clickable GitHub URLs
+# - Unstacked commits (not in any PR) separately
+# - Commit SHAs and descriptions for context
 ```
 
 ## Implementation Notes

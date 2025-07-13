@@ -365,4 +365,100 @@ export class GitManager {
       throw new Error(`Failed to rebase onto ${newBase} from ${oldBase}. Please resolve conflicts manually.`);
     }
   }
+
+  /**
+   * Get all commits for a specific branch that aren't in the base branch
+   */
+  async getCommitsForBranch(branchName: string, baseBranch: string = "main"): Promise<GitCommit[]> {
+    try {
+      const result = await Bun.$`git log origin/${baseBranch}..origin/${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+      
+      if (!result.trim()) {
+        return [];
+      }
+      
+      return result.trim().split('\n').map(line => {
+        const [hash, message, author, date] = line.split('|');
+        return { hash, message, author, date };
+      });
+    } catch (error) {
+      // If the branch doesn't exist remotely, try locally
+      try {
+        const localResult = await Bun.$`git log ${baseBranch}..${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+        
+        if (!localResult.trim()) {
+          return [];
+        }
+        
+        return localResult.trim().split('\n').map(line => {
+          const [hash, message, author, date] = line.split('|');
+          return { hash, message, author, date };
+        });
+      } catch (localError) {
+        console.error(`Git command failed for branch ${branchName}:`);
+        console.error(localError);
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Find commits on current branch that aren't in any stack branch or default branch
+   */
+  async getUnstakedCommits(stackBranches: string[], defaultBranch: string): Promise<GitCommit[]> {
+    try {
+      // Build exclusion list: origin/defaultBranch + all existing stack branches
+      const exclusions = [`origin/${defaultBranch}`];
+      
+      // Add existing stack branches to exclusions
+      for (const branch of stackBranches) {
+        exclusions.push(`origin/${branch}`);
+      }
+
+      let newCommits: GitCommit[] = [];
+
+      // Try different strategies to find new commits
+      for (const exclusion of exclusions) {
+        try {
+          // Check if this ref exists
+          await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
+
+          // Get commits since this ref
+          const commitsFromThisRef = await this.getCommitsSince(exclusion);
+
+          if (commitsFromThisRef.length > 0) {
+            // Use the ref that gives us the smallest set of new commits
+            // (most recent starting point)
+            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+              newCommits = commitsFromThisRef;
+            }
+          }
+        } catch {
+          // This ref doesn't exist, skip it
+          continue;
+        }
+      }
+
+      // If no exclusions worked, fall back to just origin/defaultBranch
+      if (newCommits.length === 0) {
+        try {
+          newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
+        } catch {
+          // Last resort: get commits from a reasonable base
+          try {
+            const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+            const baseRef = rootCommit.trim().split('\n')[0];
+            newCommits = await this.getCommitsSince(baseRef);
+          } catch {
+            newCommits = [];
+          }
+        }
+      }
+
+      return newCommits;
+    } catch (error) {
+      console.error(`Failed to get unstacked commits: ${error}`);
+      return [];
+    }
+  }
 }

@@ -268,6 +268,75 @@ class GitManager {
       throw new Error(`Failed to rebase onto ${newBase} from ${oldBase}. Please resolve conflicts manually.`);
     }
   }
+  async getCommitsForBranch(branchName, baseBranch = "main") {
+    try {
+      const result = await Bun.$`git log origin/${baseBranch}..origin/${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split(`
+`).map((line) => {
+        const [hash, message, author, date] = line.split("|");
+        return { hash, message, author, date };
+      });
+    } catch (error) {
+      try {
+        const localResult = await Bun.$`git log ${baseBranch}..${branchName} '--pretty=format:%H|%s|%an|%ad' --date=iso`.text();
+        if (!localResult.trim()) {
+          return [];
+        }
+        return localResult.trim().split(`
+`).map((line) => {
+          const [hash, message, author, date] = line.split("|");
+          return { hash, message, author, date };
+        });
+      } catch (localError) {
+        console.error(`Git command failed for branch ${branchName}:`);
+        console.error(localError);
+        return [];
+      }
+    }
+  }
+  async getUnstakedCommits(stackBranches, defaultBranch) {
+    try {
+      const exclusions = [`origin/${defaultBranch}`];
+      for (const branch of stackBranches) {
+        exclusions.push(`origin/${branch}`);
+      }
+      let newCommits = [];
+      for (const exclusion of exclusions) {
+        try {
+          await Bun.$`git rev-parse --verify ${exclusion}`.quiet();
+          const commitsFromThisRef = await this.getCommitsSince(exclusion);
+          if (commitsFromThisRef.length > 0) {
+            if (newCommits.length === 0 || commitsFromThisRef.length < newCommits.length) {
+              newCommits = commitsFromThisRef;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (newCommits.length === 0) {
+        try {
+          newCommits = await this.getCommitsSince(`origin/${defaultBranch}`);
+        } catch {
+          try {
+            const rootCommit = await Bun.$`git rev-list --max-parents=0 HEAD`.text();
+            const baseRef = rootCommit.trim().split(`
+`)[0];
+            newCommits = await this.getCommitsSince(baseRef);
+          } catch {
+            newCommits = [];
+          }
+        }
+      }
+      return newCommits;
+    } catch (error) {
+      console.error(`Failed to get unstacked commits: ${error}`);
+      return [];
+    }
+  }
 }
 
 // src/github-manager.ts
@@ -1409,20 +1478,23 @@ class StackManager {
         const allPRs = JSON.parse(result);
         const stackPRs = allPRs.filter((pr) => pr.headRefName.startsWith(config.userPrefix + "/"));
         if (stackPRs.length === 0) {
-          return { prs: [], totalCommits: 0 };
+          return { prs: [], unstakedCommits: [] };
         }
         const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
         const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+        const prsWithCommits = await this.populateStackCommits(fixedPRs.map((pr) => ({
+          number: pr.number,
+          branch: pr.headRefName,
+          title: pr.title,
+          url: pr.url,
+          base: pr.baseRefName,
+          head: pr.headRefName
+        })), config.defaultBranch);
+        const stackBranches = fixedPRs.map((pr) => pr.headRefName);
+        const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
         const stackState = {
-          prs: fixedPRs.map((pr) => ({
-            number: pr.number,
-            branch: pr.headRefName,
-            title: pr.title,
-            url: pr.url,
-            base: pr.baseRefName,
-            head: pr.headRefName
-          })),
-          totalCommits: 0,
+          prs: prsWithCommits,
+          unstakedCommits,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
         return stackState;
@@ -1438,22 +1510,25 @@ class StackManager {
         logInfo(`Found ${stackPRs.length} stack PRs out of ${allPRs.length} total open PRs`, 1);
         if (stackPRs.length === 0) {
           endGroup();
-          return { prs: [], totalCommits: 0 };
+          return { prs: [], unstakedCommits: [] };
         }
         logProgress("Building stack order from base chains...");
         const orderedPRs = this.buildStackOrder(stackPRs, config.defaultBranch);
         logProgress("Validating and auto-fixing broken chains...");
         const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
+        const prsWithCommits = await this.populateStackCommits(fixedPRs.map((pr) => ({
+          number: pr.number,
+          branch: pr.headRefName,
+          title: pr.title,
+          url: pr.url,
+          base: pr.baseRefName,
+          head: pr.headRefName
+        })), config.defaultBranch);
+        const stackBranches = fixedPRs.map((pr) => pr.headRefName);
+        const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
         const stackState = {
-          prs: fixedPRs.map((pr) => ({
-            number: pr.number,
-            branch: pr.headRefName,
-            title: pr.title,
-            url: pr.url,
-            base: pr.baseRefName,
-            head: pr.headRefName
-          })),
-          totalCommits: 0,
+          prs: prsWithCommits,
+          unstakedCommits,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
         logSuccess(`Stack discovered: ${fixedPRs.length} PRs in order`);
@@ -1663,12 +1738,30 @@ class StackManager {
     ]);
     logInfo(`You can now continue working on ${config.defaultBranch} and run 'rungs stack' again for additional commits.`);
   }
+  async populateStackCommits(stackPRs, defaultBranch) {
+    const populatedPRs = [];
+    for (const pr of stackPRs) {
+      try {
+        const commits = await this.git.getCommitsForBranch(pr.branch, pr.base);
+        populatedPRs.push({
+          ...pr,
+          commits
+        });
+      } catch (error) {
+        console.warn(`Warning: Could not get commits for PR #${pr.number} (${pr.branch}): ${error}`);
+        populatedPRs.push({
+          ...pr,
+          commits: []
+        });
+      }
+    }
+    return populatedPRs;
+  }
   async getStatus() {
     await this.ensurePrerequisites();
     const config = await this.config.getAll();
     const gitStatus = await this.git.getStatus();
     const currentStack = await this.getCurrentStack();
-    const newCommits = await this.getNewCommits();
     let statusMessage = `
 Current Status:
 - Branch: ${gitStatus.currentBranch}
@@ -1678,19 +1771,36 @@ Current Status:
 
 Stack Status (from GitHub):
 - Active PRs: ${currentStack.prs.length}
-- New commits ready: ${newCommits.length}
 `;
     if (currentStack.prs.length > 0) {
       statusMessage += `
-Active PRs (in stack order):
-${currentStack.prs.map((pr, i) => `  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`).join(`
-`)}`;
+Active PRs (in stack order):`;
+      currentStack.prs.forEach((pr, i) => {
+        statusMessage += `
+  ${i + 1}. PR #${pr.number}: ${pr.head} <- ${pr.base}`;
+        statusMessage += `
+     \u2192 ${pr.url}`;
+        if (pr.commits && pr.commits.length > 0) {
+          statusMessage += `
+     Commits:`;
+          pr.commits.forEach((commit) => {
+            statusMessage += `
+       - ${commit.hash.slice(0, 7)}: ${commit.message}`;
+          });
+        } else {
+          statusMessage += `
+     Commits: (none)`;
+        }
+      });
     }
-    if (newCommits.length > 0) {
+    if (currentStack.unstakedCommits && currentStack.unstakedCommits.length > 0) {
       statusMessage += `
-New Commits (ready to push):
-${newCommits.map((c) => `  - ${c.hash.slice(0, 7)}: ${c.message}`).join(`
-`)}`;
+
+New Commits (ready to push) - ${currentStack.unstakedCommits.length}:`;
+      currentStack.unstakedCommits.forEach((commit) => {
+        statusMessage += `
+  - ${commit.hash.slice(0, 7)}: ${commit.message}`;
+      });
     }
     return statusMessage;
   }
@@ -2046,16 +2156,35 @@ async function handleStatus(stack, options) {
     const stackState = await tracker.stackOperation("Retrieving stack status", async () => {
       return await stack.getCurrentStack();
     }, {
-      successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+      successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs${result.unstakedCommits && result.unstakedCommits.length > 0 ? `, ${result.unstakedCommits.length} unstacked commits` : ""}`,
       showElapsed: true
     });
     if (stackState.prs.length > 0) {
-      console.log(`Stack Status: ${stackState.prs.length} PRs, ${stackState.totalCommits} commits`);
+      console.log(`Stack Status: ${stackState.prs.length} PRs`);
+      console.log("");
       stackState.prs.forEach((pr, i) => {
-        console.log(`  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`);
+        console.log(`PR #${pr.number}: ${pr.title} \u2192 ${pr.url}`);
+        console.log(`  Base: ${pr.base}`);
+        if (pr.commits && pr.commits.length > 0) {
+          pr.commits.forEach((commit) => {
+            console.log(`  ${commit.hash.slice(0, 7)} ${commit.message}`);
+          });
+        } else {
+          console.log(`  (no commits)`);
+        }
+        if (i < stackState.prs.length - 1) {
+          console.log("");
+        }
       });
     } else {
       console.log("Stack Status: No active PRs");
+    }
+    if (stackState.unstakedCommits && stackState.unstakedCommits.length > 0) {
+      console.log("");
+      console.log(`New Commits (ready to push): ${stackState.unstakedCommits.length}`);
+      stackState.unstakedCommits.forEach((commit) => {
+        console.log(`  ${commit.hash.slice(0, 7)} ${commit.message}`);
+      });
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

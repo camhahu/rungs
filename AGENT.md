@@ -38,6 +38,8 @@ test("example test", () => {
 });
 ```
 
+Never delete tests because they don't work. You're allowed to 'replace' tests that no longer are relevant. But you must replace them with new tests. Don't regress coverage.
+
 ### Bug Fix Testing Strategy
 
 **CRITICAL**: Every bug fix must include a regression test that reproduces the original issue and verifies the fix.

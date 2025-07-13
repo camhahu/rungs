@@ -16,7 +16,7 @@ export interface StackPR {
 
 export interface StackState {
   prs: StackPR[];
-  totalCommits: number;
+  unstakedCommits: GitCommit[];
   lastBranch?: string;
 }
 
@@ -79,7 +79,7 @@ export class StackManager {
           );
 
           if (stackPRs.length === 0) {
-            return { prs: [], totalCommits: 0 };
+            return { prs: [], unstakedCommits: [] };
           }
 
           // Build topological order by following base->head chains
@@ -88,8 +88,9 @@ export class StackManager {
           // Auto-fix any broken base chains
           const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
 
-          const stackState: StackState = {
-            prs: fixedPRs.map(pr => ({
+          // Populate commits for each PR
+          const prsWithCommits = await this.populateStackCommits(
+            fixedPRs.map(pr => ({
               number: pr.number,
               branch: pr.headRefName,
               title: pr.title,
@@ -97,7 +98,16 @@ export class StackManager {
               base: pr.baseRefName,
               head: pr.headRefName
             })),
-            totalCommits: 0, // Will be calculated when needed
+            config.defaultBranch
+          );
+
+          // Get unstacked commits
+          const stackBranches = fixedPRs.map(pr => pr.headRefName);
+          const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
+
+          const stackState: StackState = {
+            prs: prsWithCommits,
+            unstakedCommits,
             lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
           };
 
@@ -131,7 +141,7 @@ export class StackManager {
 
         if (stackPRs.length === 0) {
           endGroup();
-          return { prs: [], totalCommits: 0 };
+          return { prs: [], unstakedCommits: [] };
         }
 
         logProgress("Building stack order from base chains...");
@@ -144,8 +154,9 @@ export class StackManager {
         // Auto-fix any broken base chains
         const fixedPRs = await this.autoFixBrokenChains(orderedPRs, config.defaultBranch);
 
-        const stackState: StackState = {
-          prs: fixedPRs.map(pr => ({
+        // Populate commits for each PR
+        const prsWithCommits = await this.populateStackCommits(
+          fixedPRs.map(pr => ({
             number: pr.number,
             branch: pr.headRefName,
             title: pr.title,
@@ -153,7 +164,16 @@ export class StackManager {
             base: pr.baseRefName,
             head: pr.headRefName
           })),
-          totalCommits: 0, // Will be calculated when needed
+          config.defaultBranch
+        );
+
+        // Get unstacked commits
+        const stackBranches = fixedPRs.map(pr => pr.headRefName);
+        const unstakedCommits = await this.git.getUnstakedCommits(stackBranches, config.defaultBranch);
+
+        const stackState: StackState = {
+          prs: prsWithCommits,
+          unstakedCommits,
           lastBranch: fixedPRs.length > 0 ? fixedPRs[fixedPRs.length - 1].headRefName : undefined
         };
 
@@ -485,6 +505,32 @@ export class StackManager {
   }
 
   /**
+   * Populate the commits field for each PR by fetching commit details
+   */
+  private async populateStackCommits(stackPRs: StackPR[], defaultBranch: string): Promise<StackPR[]> {
+    const populatedPRs: StackPR[] = [];
+    
+    for (const pr of stackPRs) {
+      try {
+        const commits = await this.git.getCommitsForBranch(pr.branch, pr.base);
+        populatedPRs.push({
+          ...pr,
+          commits: commits
+        });
+      } catch (error) {
+        // If we can't get commits for this PR, include it without commits
+        console.warn(`Warning: Could not get commits for PR #${pr.number} (${pr.branch}): ${error}`);
+        populatedPRs.push({
+          ...pr,
+          commits: []
+        });
+      }
+    }
+    
+    return populatedPRs;
+  }
+
+  /**
    * Get current status using GitHub as source of truth.
    */
   async getStatus(): Promise<string> {
@@ -493,7 +539,6 @@ export class StackManager {
     const config = await this.config.getAll();
     const gitStatus = await this.git.getStatus();
     const currentStack = await this.getCurrentStack();
-    const newCommits = await this.getNewCommits();
 
     let statusMessage = `
 Current Status:
@@ -504,19 +549,30 @@ Current Status:
 
 Stack Status (from GitHub):
 - Active PRs: ${currentStack.prs.length}
-- New commits ready: ${newCommits.length}
 `;
 
     if (currentStack.prs.length > 0) {
-      statusMessage += `\nActive PRs (in stack order):\n${currentStack.prs.map((pr, i) =>
-        `  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`
-      ).join('\n')}`;
+      statusMessage += `\nActive PRs (in stack order):`;
+      currentStack.prs.forEach((pr, i) => {
+        statusMessage += `\n  ${i + 1}. PR #${pr.number}: ${pr.head} <- ${pr.base}`;
+        statusMessage += `\n     → ${pr.url}`;
+        
+        if (pr.commits && pr.commits.length > 0) {
+          statusMessage += `\n     Commits:`;
+          pr.commits.forEach(commit => {
+            statusMessage += `\n       - ${commit.hash.slice(0, 7)}: ${commit.message}`;
+          });
+        } else {
+          statusMessage += `\n     Commits: (none)`;
+        }
+      });
     }
 
-    if (newCommits.length > 0) {
-      statusMessage += `\nNew Commits (ready to push):\n${newCommits.map(c =>
-        `  - ${c.hash.slice(0, 7)}: ${c.message}`
-      ).join('\n')}`;
+    if (currentStack.unstakedCommits && currentStack.unstakedCommits.length > 0) {
+      statusMessage += `\n\nNew Commits (ready to push) - ${currentStack.unstakedCommits.length}:`;
+      currentStack.unstakedCommits.forEach(commit => {
+        statusMessage += `\n  - ${commit.hash.slice(0, 7)}: ${commit.message}`;
+      });
     }
 
     return statusMessage;

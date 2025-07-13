@@ -203,19 +203,43 @@ async function handleStatus(stack: StackManager, options: CliOptions) {
         return await stack.getCurrentStack();
       },
       {
-        successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs, ${result.totalCommits} commits`,
+        successMessage: (result) => `Stack status retrieved - ${result.prs.length} PRs${result.unstakedCommits && result.unstakedCommits.length > 0 ? `, ${result.unstakedCommits.length} unstacked commits` : ''}`,
         showElapsed: true
       }
     );
     
     // Display the status information in compact format
     if (stackState.prs.length > 0) {
-      console.log(`Stack Status: ${stackState.prs.length} PRs, ${stackState.totalCommits} commits`);
+      console.log(`Stack Status: ${stackState.prs.length} PRs`);
+      console.log("");
+      
       stackState.prs.forEach((pr, i) => {
-        console.log(`  ${i + 1}. #${pr.number}: ${pr.branch} <- ${pr.base}`);
+        console.log(`PR #${pr.number}: ${pr.title} → ${pr.url}`);
+        console.log(`  Base: ${pr.base}`);
+        
+        if (pr.commits && pr.commits.length > 0) {
+          pr.commits.forEach(commit => {
+            console.log(`  ${commit.hash.slice(0, 7)} ${commit.message}`);
+          });
+        } else {
+          console.log(`  (no commits)`);
+        }
+        
+        if (i < stackState.prs.length - 1) {
+          console.log("");
+        }
       });
     } else {
       console.log("Stack Status: No active PRs");
+    }
+    
+    // Display unstacked commits
+    if (stackState.unstakedCommits && stackState.unstakedCommits.length > 0) {
+      console.log("");
+      console.log(`New Commits (ready to push): ${stackState.unstakedCommits.length}`);
+      stackState.unstakedCommits.forEach(commit => {
+        console.log(`  ${commit.hash.slice(0, 7)} ${commit.message}`);
+      });
     }
     
   } catch (error) {
