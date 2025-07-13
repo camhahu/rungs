@@ -37,6 +37,8 @@ New Commits (ready to push): 1
 
 ## Features
 
+- The `rungs stack` command used to be called `rungs push`. There are various places this has not been fixed in the codebase. Fix them all and remove any reference to `rungs push`.
+
 - Compact vs verbose mode is confusing. Remove compact as an option. It must be the default. --verbose should stay as a possible option.
 
 
