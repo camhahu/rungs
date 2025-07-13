@@ -6,3 +6,6 @@ Fixed bug where commits were appearing both in PR sections and "New Commits" sec
 
 ## Rungs merge doesn't respect compact by default
 Fixed `rungs merge` command to respect output mode configuration by implementing OperationTracker for compact mode (default) and preserving verbose mode when --verbose flag is provided. See [rungs-merge-verbosity.md](issues/rungs-merge-verbosity.md) for implementation details.
+
+## Stack misidentification after rebase operations
+Fixed critical bug where commits were incorrectly identified as "unstacked" after PR merge and rebase operations due to stale remote refs and timing issues in commit detection logic. See [stack-misidentification.md](issues/stack-misidentification.md) for detailed analysis and implementation details.
