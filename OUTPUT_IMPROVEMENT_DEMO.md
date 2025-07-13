@@ -75,7 +75,7 @@ Stack operation completed successfully!
    Pull Request: #123
    URL         : https://github.com/user/repo/pull/123
 
-ℹ️  You can now continue working on main and run 'rungs push' again for additional commits.
+ℹ️  You can now continue working on main and run 'rungs stack' again for additional commits.
 
 ══════════════════════════════
 ```
@@ -87,7 +87,7 @@ Stack operation completed successfully!
 - Professional status display
 - Maintains existing information structure
 
-### 2. **rungs push**
+### 2. **rungs stack**
 - Multi-stage operation with clear grouping
 - Progress indicators for each major step
 - Detailed commit information
@@ -135,7 +135,7 @@ Stack operation completed successfully!
 - Same information displayed, just better formatted
 - Verbose mode provides additional detail when needed
 
-## Example: Complex Operation (rungs push with multiple commits)
+## Example: Complex Operation (rungs stack with multiple commits)
 
 The new output clearly shows the progression through:
 1. **Syncing** with GitHub to check PR status

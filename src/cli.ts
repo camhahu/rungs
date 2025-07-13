@@ -105,7 +105,7 @@ async function main() {
 
     switch (command) {
       case "stack":
-        await handlePush(stack, args, options);
+        await handleStack(stack, args, options);
         break;
       case "status":
         await handleStatus(stack, options);
@@ -175,10 +175,10 @@ For more information, visit: https://github.com/camhahu/rungs
 `);
 }
 
-async function handlePush(stack: StackManager, args: string[], options: CliOptions) {
+async function handleStack(stack: StackManager, args: string[], options: CliOptions) {
   // In verbose mode, use the traditional section-based approach
   if (output.getOutputMode() === 'verbose') {
-    output.startSection("Push Stack Operation", "stack");
+    output.startSection("Stack Operation", "stack");
     await stack.pushStack(options.autoPublish, options.force);
     output.success("Stack operation completed successfully!");
     output.endSection();

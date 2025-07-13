@@ -12,3 +12,6 @@ Fixed critical bug where commits were incorrectly identified as "unstacked" afte
 
 ## Test failure detection improvements
 Created simple shell script solution to analyze bun test output and detect failures that were being missed due to long output, ensuring proper exit code checking and clear failure reporting. See [test-failure-detection.md](issues/test-failure-detection.md) for implementation details.
+
+## Rename 'rungs push' to 'rungs stack'
+Successfully renamed all user-facing references from 'rungs push' to 'rungs stack' throughout the codebase, updating 10+ files including documentation, code, and tests while preserving internal API consistency. See [rungs-push-to-stack-rename.md](issues/rungs-push-to-stack-rename.md) for implementation details.
