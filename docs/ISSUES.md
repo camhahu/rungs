@@ -17,6 +17,9 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - [x] Commit mistakenly identified as not belonging to an open stack - Fixed stack misidentification bug where commits appeared as "unstacked" after PR merge and rebase operations due to stale remote refs and timing issues
 
+- First time running: if `rungs config set userPrefix` or `rungs config set defaultBranch` haven't been set it behaves weirdly. Can you make rungs return a friendly error? Ideally rungs should silently check config has been set when you run `rungs status` and surface a warning with steps to fix
+
+
 ## Features
 
 - Test coverage is okay. But we are not enforcing it. Can you add a pre-commit hook using husky to run the tests and build. Ensure the pre commit hook prints out the test coverage. Do not fix the test coverage yet, but opportunistically, in the future I will get you to improve test coverage. Only do it when asked.
