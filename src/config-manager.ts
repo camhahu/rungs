@@ -104,4 +104,28 @@ export class ConfigManager {
       throw new Error(`Failed to reset config file: ${error}`);
     }
   }
+
+  async isUsingDefaults(): Promise<{ userPrefix: boolean; defaultBranch: boolean }> {
+    try {
+      const file = Bun.file(this.configPath);
+      if (!(await file.exists())) {
+        return { userPrefix: true, defaultBranch: true };
+      }
+      
+      const content = await file.text();
+      const config = JSON.parse(content);
+      
+      // Check if the critical config values are using defaults
+      const userPrefixIsDefault = !config.hasOwnProperty('userPrefix') || config.userPrefix === DEFAULT_CONFIG.userPrefix;
+      const defaultBranchIsDefault = !config.hasOwnProperty('defaultBranch') || config.defaultBranch === DEFAULT_CONFIG.defaultBranch;
+      
+      return { 
+        userPrefix: userPrefixIsDefault,
+        defaultBranch: defaultBranchIsDefault
+      };
+    } catch (error) {
+      // If we can't read the config, assume defaults are being used
+      return { userPrefix: true, defaultBranch: true };
+    }
+  }
 }

@@ -777,6 +777,24 @@ class ConfigManager {
       throw new Error(`Failed to reset config file: ${error}`);
     }
   }
+  async isUsingDefaults() {
+    try {
+      const file = Bun.file(this.configPath);
+      if (!await file.exists()) {
+        return { userPrefix: true, defaultBranch: true };
+      }
+      const content = await file.text();
+      const config = JSON.parse(content);
+      const userPrefixIsDefault = !config.hasOwnProperty("userPrefix") || config.userPrefix === DEFAULT_CONFIG.userPrefix;
+      const defaultBranchIsDefault = !config.hasOwnProperty("defaultBranch") || config.defaultBranch === DEFAULT_CONFIG.defaultBranch;
+      return {
+        userPrefix: userPrefixIsDefault,
+        defaultBranch: defaultBranchIsDefault
+      };
+    } catch (error) {
+      return { userPrefix: true, defaultBranch: true };
+    }
+  }
 }
 
 // src/ansi-utils.ts
@@ -2365,9 +2383,27 @@ async function handleStack(stack, args, options) {
     showElapsed: true
   });
 }
+function showConfigWarnings(usingDefaults) {
+  if (usingDefaults.userPrefix || usingDefaults.defaultBranch) {
+    output.warning("Configuration needed for first-time setup:");
+    if (usingDefaults.userPrefix) {
+      output.warning("  \u2022 User prefix not set - using default 'dev'");
+      output.info("    Run: rungs config set userPrefix <your-name>");
+    }
+    if (usingDefaults.defaultBranch) {
+      output.warning("  \u2022 Default branch not set - using default 'main'");
+      output.info("    Run: rungs config set defaultBranch <your-default-branch>");
+    }
+    output.info("Run 'rungs config list' to see all settings");
+    console.log("");
+  }
+}
 async function handleStatus(stack, options) {
   const tracker = new OperationTracker(output);
   try {
+    const config = new ConfigManager(options.config);
+    const usingDefaults = await config.isUsingDefaults();
+    showConfigWarnings(usingDefaults);
     if (output.getOutputMode() === "verbose") {
       output.startSection("Stack Status", "stack");
       const status = await stack.getStatus();

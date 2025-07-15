@@ -200,11 +200,32 @@ async function handleStack(stack: StackManager, args: string[], options: CliOpti
   );
 }
 
+function showConfigWarnings(usingDefaults: { userPrefix: boolean; defaultBranch: boolean }) {
+  if (usingDefaults.userPrefix || usingDefaults.defaultBranch) {
+    output.warning("Configuration needed for first-time setup:");
+    if (usingDefaults.userPrefix) {
+      output.warning("  • User prefix not set - using default 'dev'");
+      output.info("    Run: rungs config set userPrefix <your-name>");
+    }
+    if (usingDefaults.defaultBranch) {
+      output.warning("  • Default branch not set - using default 'main'");
+      output.info("    Run: rungs config set defaultBranch <your-default-branch>");
+    }
+    output.info("Run 'rungs config list' to see all settings");
+    console.log(""); // Add spacing
+  }
+}
+
 async function handleStatus(stack: StackManager, options: CliOptions) {
   // Create operation tracker for better progress management
   const tracker = new OperationTracker(output);
   
   try {
+    // Check for configuration issues and show warnings
+    const config = new ConfigManager(options.config);
+    const usingDefaults = await config.isUsingDefaults();
+    showConfigWarnings(usingDefaults);
+    
     // In verbose mode, use the old section-based approach
     if (output.getOutputMode() === 'verbose') {
       output.startSection("Stack Status", "stack");
