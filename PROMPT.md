@@ -1,5 +1,5 @@
 You are working on `rungs`.
-- Understand what `rungs` is by reading the README.md and AGENT.md/CLAUDE.md files
+- Understand what `rungs` is by reading the @README.md and @AGENT.md/CLAUDE.md files
 - The spec for how rungs works is in @docs/SPEC.md. This file is only edited after a new feature is working and should reflect the current behaviour of rungs
 - @docs/ISSUES.md contains tasks that need to be completed. You should complete just 1 issue at a time.
 
