@@ -9,6 +9,42 @@ This document tracks all work items needed to implement the rungs CLI project.
 
 - If the working changes are ditry it blocks me from making a stack. kind makes sense since it does a pull first. however, if my changes are all untracked files I just want the thing to do it, because obviously an untracked file won't have a conflict, right?
 
+- when making a stack, output displays the following despite there being 3 local commits, 'Found 1 new commits' is the troublesome part. It should be 3? Also. when it's 1, it should say commit, not commits
+```
+✅ Validating sync status
+✅ Fetched latest changes
+✅ Discovering stack from GitHub
+✅ Found 1 new commits
+⠴ 📚 Creating stackfatal: Needed a single revision
+⠋ 🔄 Creating and pushing branch dev/link-files-in-promptmdSwitched to a new branch 'dev/link-files-in-promptmd'
+⠏ 📚 Creating stackremote:
+remote: Create a pull request for 'dev/link-files-in-promptmd' on GitHub by visiting:
+remote:      https://github.com/camhahu/rungs/pull/new/dev/link-files-in-promptmd
+remote:
+To https://github.com/camhahu/rungs.git
+ * [new branch]      dev/link-files-in-promptmd -> dev/link-files-in-promptmd
+✅ Creating and pushing branch dev/link-files-in-promptmd
+✅ Discovering stack from GitHub
+✅ Creating PR: Link files in PROMPT.md
+⠋ 🔄 Returning to main branchSwitched to branch 'main'
+Your branch is ahead of 'origin/main' by 3 commits.
+  (use "git push" to publish your local commits)
+✅ Returning to main branch
+✅ Stack operation completed successfully (8863ms)
+```
+
+- when running `rungs config list`, there's a problematic [object Object] that gets logged
+```
+
+📋 Current Configuration:
+  userPrefix   : camhahu
+  defaultBranch: main
+  draftPRs     : true
+  autoRebase   : true
+  branchNaming : commit-message
+  output       : [object Object]
+```
+
 ## Features
 
 - Test coverage is okay. But we are not enforcing it. Can you add a pre-commit hook using husky to run the tests and build. Ensure the pre commit hook prints out the test coverage. Do not fix the test coverage yet, but opportunistically, in the future I will get you to improve test coverage. Only do it when asked.
