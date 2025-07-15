@@ -3,22 +3,10 @@
 This document tracks all work items needed to implement the rungs CLI project.
 
 ## Bugs
-- [x] Compact mode status command error: `rungs status --compact` throws "undefined is not an object (evaluating 'result.prs.length')" error
-
-- [x] `rungs status` output could be improved. 
-  - [x] Show each stack in order, like you currently are
-  - [x] For each stack list the individual commits with their descriptions and short version of SHA underneath
-  - [x] Separately from the stack, show any local commits that don't below to a stack. 'Unstacked'
-  - [x] Overall commit count is not useful (and wrong at the moment) - removed totalCommits field
-
-- [x] `rungs stack` output is verbose. Not sure if this is beacuse verbose mode is the default or not. There is a related feature for this.
-
-- [x] Failing tests - Fixed operation-tracker.ts defensive programming issues causing "TypeError: this.output.failOperation is not a function" errors in auto-publish.test.ts (all 186 tests now pass)
-
-- [x] Commit mistakenly identified as not belonging to an open stack - Fixed stack misidentification bug where commits appeared as "unstacked" after PR merge and rebase operations due to stale remote refs and timing issues
 
 - First time running: if `rungs config set userPrefix` or `rungs config set defaultBranch` haven't been set it behaves weirdly. Can you make rungs return a friendly error? Ideally rungs should silently check config has been set when you run `rungs status` and surface a warning with steps to fix
 
+- If the working changes are ditry it blocks me from making a stack. kind makes sense since it does a pull first. however, if my changes are all untracked files I just want the thing to do it, because obviously an untracked file won't have a conflict, right?
 
 ## Features
 
