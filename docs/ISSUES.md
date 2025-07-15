@@ -45,6 +45,8 @@ Your branch is ahead of 'origin/main' by 3 commits.
   output       : [object Object]
 ```
 
+- Default branch not set warning displays even when default branch is already set
+
 ## Features
 
 - Test coverage is okay. But we are not enforcing it. Can you add a pre-commit hook using husky to run the tests and build. Ensure the pre commit hook prints out the test coverage. Do not fix the test coverage yet, but opportunistically, in the future I will get you to improve test coverage. Only do it when asked.
