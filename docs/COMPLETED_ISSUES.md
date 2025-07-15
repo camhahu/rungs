@@ -15,3 +15,6 @@ Created simple shell script solution to analyze bun test output and detect failu
 
 ## Rename 'rungs push' to 'rungs stack'
 Successfully renamed all user-facing references from 'rungs push' to 'rungs stack' throughout the codebase, updating 10+ files including documentation, code, and tests while preserving internal API consistency. See [rungs-push-to-stack-rename.md](issues/rungs-push-to-stack-rename.md) for implementation details.
+
+## Config validation for first-time users
+Implemented friendly error handling for missing required config values (userPrefix and defaultBranch) with clear setup instructions, preventing weird behavior on first run and providing guided configuration steps. See [config-validation-bug.md](issues/config-validation-bug.md) for implementation details.
