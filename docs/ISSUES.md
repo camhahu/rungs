@@ -49,6 +49,9 @@ Your branch is ahead of 'origin/main' by 3 commits.
 
 - the duplicate commit detection thing is detecting two commits with the same commit message. can you solve this problem deterministically instead? be smart, dont write weird algorithms this is simple software
 
+- When you create a stack, the local branch for the stack has no upstream origin - why not?
+
+
 ## Features
 
 - Test coverage is okay. But we are not enforcing it. Can you add a pre-commit hook using husky to run the tests and build. Ensure the pre commit hook prints out the test coverage. Do not fix the test coverage yet, but opportunistically, in the future I will get you to improve test coverage. Only do it when asked.
